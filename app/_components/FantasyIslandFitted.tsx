@@ -31,7 +31,7 @@ export function FantasyIslandFitted({
     const radius = sphere.radius;
 
     // Adjust this to match the framing you want.
-    const desiredRadius = 20;
+    const desiredRadius = 25;
     const scale = radius > 0 ? desiredRadius / radius : 1;
 
     // Place: X/Z centered, Y bottom aligned.
@@ -40,6 +40,21 @@ export function FantasyIslandFitted({
 
     // Orbit around the visual "middle" height (helps show full island).
     const targetY = (size.y / 2) * scale;
+
+    // Reduce IBL/reflection strength so the island doesn't look over-bright.
+    // (Environment texture from `SkyBackdrop` can make specular highlights too intense.)
+    scene.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh) return;
+
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const mat of materials) {
+        const m = mat as unknown as { envMapIntensity?: number };
+        if (typeof m?.envMapIntensity === "number") {
+          m.envMapIntensity = 0.35;
+        }
+      }
+    });
 
     // Update controls target to match our centered transform.
     const controls = controlsRef.current;
@@ -90,13 +105,14 @@ export function FantasyIslandFitted({
     const distance = desiredRadius / Math.tan(fovRad / 2);
 
     // Framing tuning: zoom in so the water fills the viewport.
-    const cameraDistanceMultiplier = 0.12;
-    const heightMultiplier = 0.12;
+    // Aim for a more "eye-level" / horizontal view over the island.
+    const cameraDistanceMultiplier = 0.13;
+    const heightMultiplier = 0.02;
 
     cam.position.set(
-      0,
+      -3.1,
       targetY + desiredRadius * heightMultiplier,
-      distance * cameraDistanceMultiplier
+      -(distance * cameraDistanceMultiplier)
     );
     cam.lookAt(0, targetY, 0);
     cam.updateProjectionMatrix();

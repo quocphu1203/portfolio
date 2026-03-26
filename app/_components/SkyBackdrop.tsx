@@ -11,7 +11,7 @@ import { extractFirstTextureMap } from "./textureUtils";
 const SKY_SCALE = 50;
 
 export function SkyBackdrop() {
-  const { scene } = useGLTF("/sky2.glb") as { scene: THREE.Object3D };
+  const { scene } = useGLTF("/sky.glb") as { scene: THREE.Object3D };
 
   const skyScene = useMemo(() => {
     const clone = scene.clone(true);
@@ -27,11 +27,19 @@ export function SkyBackdrop() {
           const std = mat as THREE.MeshStandardMaterial;
           const colorMap = std.map || std.emissiveMap;
 
+          // Ensure color textures are treated as sRGB for correct, vibrant colors.
+          if (colorMap && colorMap instanceof THREE.Texture) {
+            colorMap.colorSpace = THREE.SRGBColorSpace;
+            colorMap.needsUpdate = true;
+          }
+
           return new THREE.MeshBasicMaterial({
             map: colorMap || undefined,
             color: colorMap ? 0xffffff : std.color,
             side: THREE.DoubleSide,
             depthWrite: false,
+            // Sky is already "baked" as colors in the texture; disable tone-mapping for punchier colors.
+            toneMapped: false,
           });
         });
 
@@ -51,6 +59,7 @@ export function SkyBackdrop() {
 
     const envTex = tex.clone();
     envTex.mapping = THREE.EquirectangularReflectionMapping;
+    envTex.colorSpace = THREE.SRGBColorSpace;
     envTex.needsUpdate = true;
     return envTex;
   }, [scene]);
@@ -60,6 +69,8 @@ export function SkyBackdrop() {
       <primitive
         object={skyScene}
         scale={[SKY_SCALE, SKY_SCALE, SKY_SCALE]}
+        // Rotate sky to the right ~45deg.
+        rotation={[0, Math.PI / 2, 0]}
         dispose={null}
       />
       {envTexture && (
