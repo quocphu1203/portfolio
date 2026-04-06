@@ -28,6 +28,10 @@ type PortfolioNavContextValue = {
   setBoatPose: (pose: { position: [number, number, number]; heading: number } | null) => void;
   boatPaused: boolean;
   boatThoughtVisible: boolean;
+  projectBirdsVisible: boolean;
+  selectedProjectId: string | null;
+  setSelectedProjectId: (id: string | null) => void;
+  focusProjectBird: (id: string, position: [number, number, number]) => void;
 };
 
 const PortfolioNavContext = createContext<PortfolioNavContextValue | null>(null);
@@ -46,6 +50,8 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
   } | null>(null);
   const [boatPaused, setBoatPaused] = useState(false);
   const [boatThoughtVisible, setBoatThoughtVisible] = useState(false);
+  const [projectBirdsVisible, setProjectBirdsVisible] = useState(false);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
 
   const requestNav = useCallback(
     (id: NavId) => {
@@ -54,6 +60,18 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
         setActiveSection(id);
         setBoatPaused(false);
         setBoatThoughtVisible(false);
+        setProjectBirdsVisible(false);
+        setSelectedProjectId(null);
+        return;
+      }
+
+      if (id === "projects") {
+        setPendingNav(null);
+        setActiveSection(id);
+        setBoatPaused(false);
+        setBoatThoughtVisible(false);
+        setProjectBirdsVisible(true);
+        setSelectedProjectId(null);
         return;
       }
 
@@ -87,6 +105,8 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
         setActiveSection(null);
         setBoatPaused(true);
         setBoatThoughtVisible(true);
+        setProjectBirdsVisible(false);
+        setSelectedProjectId(null);
         return;
       }
       const p = getCameraPresets(orbitTargetY)[id];
@@ -99,6 +119,8 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
       setActiveSection(null);
       setBoatPaused(false);
       setBoatThoughtVisible(false);
+      setProjectBirdsVisible(false);
+      setSelectedProjectId(null);
     },
     [boatPose, orbitTargetY]
   );
@@ -113,6 +135,8 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
     setActiveSection(null);
     setBoatPaused(false);
     setBoatThoughtVisible(false);
+    setProjectBirdsVisible(false);
+    setSelectedProjectId(null);
   }, [orbitTargetY]);
 
   const flyToDefault = useCallback(() => {
@@ -125,9 +149,42 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
     setActiveSection(null);
     setBoatPaused(false);
     setBoatThoughtVisible(false);
+    setProjectBirdsVisible(false);
+    setSelectedProjectId(null);
   }, [orbitTargetY]);
 
   const clearPendingNav = useCallback(() => setPendingNav(null), []);
+
+  const focusProjectBird = useCallback((id: string, position: [number, number, number]) => {
+    const [bx, by, bz] = position;
+    const outward = new THREE.Vector2(bx, bz);
+    if (outward.lengthSq() < 0.0001) outward.set(1, 0);
+    outward.normalize();
+    const tangent = new THREE.Vector2(outward.y, -outward.x);
+
+    const camPos = new THREE.Vector3(
+      bx + outward.x * 9.5 + tangent.x * 2.8,
+      by + 2.6,
+      bz + outward.y * 9.5 + tangent.y * 2.8
+    );
+    const target = new THREE.Vector3(
+      bx + tangent.x * 1.6,
+      by + 0.7,
+      bz + tangent.y * 1.6
+    );
+
+    setSelectedProjectId(id);
+    setPendingNav({
+      mode: "section",
+      sectionId: "projects",
+      cameraPos: camPos,
+      target,
+    });
+    setActiveSection(null);
+    setBoatPaused(false);
+    setBoatThoughtVisible(false);
+    setProjectBirdsVisible(true);
+  }, []);
 
   const value = useMemo(
     () => ({
@@ -146,6 +203,10 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
       setBoatPose,
       boatPaused,
       boatThoughtVisible,
+      projectBirdsVisible,
+      selectedProjectId,
+      setSelectedProjectId,
+      focusProjectBird,
     }),
     [
       orbitTargetY,
@@ -159,6 +220,9 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
       boatPose,
       boatPaused,
       boatThoughtVisible,
+      projectBirdsVisible,
+      selectedProjectId,
+      focusProjectBird,
     ]
   );
 

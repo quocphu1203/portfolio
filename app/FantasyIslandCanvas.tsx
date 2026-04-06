@@ -21,6 +21,7 @@ import { FloatingBoats } from "./_components/FloatingBoat";
 import { TimeOfDayProvider } from "./_components/TimeOfDayContext";
 import { TimeOfDayLighting } from "./_components/TimeOfDayLighting";
 import { TimeOfDayToggle } from "./_components/TimeOfDayToggle";
+import { ProjectBirdFlock } from "./_components/ProjectBirdFlock";
 
 function FantasyIslandCanvasInner() {
   const controlsRef = useRef<OrbitControlsInstance | null>(null);
@@ -83,6 +84,7 @@ function FantasyIslandCanvasInner() {
           <CameraNavController controlsRef={controlsRef} enabled={started} />
           <FantasyIslandFitted controlsRef={controlsRef} />
           <FloatingBoats />
+          <ProjectBirdFlock />
           <IslandSignpostMenu visible={started} />
         </Suspense>
       </Canvas>

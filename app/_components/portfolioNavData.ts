@@ -10,6 +10,13 @@ export type CameraPreset = {
   target: [number, number, number];
 };
 
+export type ProjectBirdItem = {
+  id: string;
+  name: string;
+  description: string;
+  github?: string;
+};
+
 export function getCameraPresets(orbitY: number): Record<NavId | "menu" | "default", CameraPreset> {
   const mid = orbitY * 0.72;
   const hi = orbitY * 1.08;
@@ -79,3 +86,29 @@ export const SIGN_LABELS: Record<NavId, string> = {
   about: "Giới thiệu",
   credits: "Kinh nghiệm",
 };
+
+export const PROJECT_BIRD_ITEMS: ProjectBirdItem[] = [
+  {
+    id: "portfolio-3d",
+    name: "3D Portfolio",
+    description: "Landing page 3D tương tác với scene đảo fantasy, điều hướng theo section và hiệu ứng thời gian trong ngày.",
+    github: "https://github.com",
+  },
+  {
+    id: "task-flow",
+    name: "Task Flow",
+    description: "Ứng dụng quản lý công việc có board, drag-drop và phân quyền theo nhóm nhỏ.",
+    github: "https://github.com",
+  },
+  {
+    id: "ecommerce-ui",
+    name: "Commerce UI",
+    description: "Bộ giao diện storefront tối ưu mobile-first, focus tốc độ tải và UX checkout.",
+  },
+  {
+    id: "realtime-chat",
+    name: "Realtime Chat",
+    description: "Ứng dụng chat thời gian thực với rooms, presence và thông báo trạng thái người dùng.",
+    github: "https://github.com",
+  },
+];
