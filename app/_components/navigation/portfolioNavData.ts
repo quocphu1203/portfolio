@@ -1,3 +1,7 @@
+import { ABOUT_SECTION } from "../../../mock/aboutData";
+import { PROJECTS_SECTION, PROJECT_BIRD_ITEMS, type ProjectBirdItem } from "../../../mock/projectsData";
+import { SKILLS_SECTION } from "../../../mock/skillsData";
+
 export const NAV_IDS = ["projects", "articles", "about", "credits"] as const;
 export type NavId = (typeof NAV_IDS)[number];
 
@@ -8,13 +12,6 @@ export const SIGNPOST_SCALE = 2;
 export type CameraPreset = {
   position: [number, number, number];
   target: [number, number, number];
-};
-
-export type ProjectBirdItem = {
-  id: string;
-  name: string;
-  description: string;
-  github?: string;
 };
 
 export function getCameraPresets(orbitY: number): Record<NavId | "menu" | "default", CameraPreset> {
@@ -55,24 +52,9 @@ export const NAV_COPY: Record<
   NavId,
   { title: string; body: string; links?: { label: string; href: string }[] }
 > = {
-  projects: {
-    title: "Project",
-    body: "Các dự án web, 3D và công cụ bạn đã làm. Thay nội dung này bằng mô tả thật và thêm link demo hoặc repo bên dưới.",
-    links: [
-      { label: "GitHub", href: "https://github.com" },
-      { label: "Live demo", href: "#" },
-    ],
-  },
-  articles: {
-    title: "Kỹ năng",
-    body: "Bài viết kỹ thuật, ghi chú học tập hoặc case study ngắn. Cập nhật danh sách bài khi bạn có blog.",
-    links: [{ label: "Blog", href: "#" }],
-  },
-  about: {
-    title: "Giới thiệu",
-    body: "Giới thiệu ngắn về bạn: vai trò, stack yêu thích, thứ đang học. Chỉnh sửa đoạn này cho đúng profile của bạn.",
-    links: [{ label: "LinkedIn", href: "#" }],
-  },
+  projects: PROJECTS_SECTION,
+  articles: SKILLS_SECTION,
+  about: ABOUT_SECTION,
   credits: {
     title: "Kinh nghiệm",
     body: "Cảm ơn Three.js, React Three Fiber, drei, và tác giả asset đảo fantasy. Thêm license hoặc attribution cụ thể tại đây.",
@@ -87,28 +69,5 @@ export const SIGN_LABELS: Record<NavId, string> = {
   credits: "Kinh nghiệm",
 };
 
-export const PROJECT_BIRD_ITEMS: ProjectBirdItem[] = [
-  {
-    id: "portfolio-3d",
-    name: "3D Portfolio",
-    description: "Landing page 3D tương tác với scene đảo fantasy, điều hướng theo section và hiệu ứng thời gian trong ngày.",
-    github: "https://github.com",
-  },
-  {
-    id: "task-flow",
-    name: "Task Flow",
-    description: "Ứng dụng quản lý công việc có board, drag-drop và phân quyền theo nhóm nhỏ.",
-    github: "https://github.com",
-  },
-  {
-    id: "ecommerce-ui",
-    name: "Commerce UI",
-    description: "Bộ giao diện storefront tối ưu mobile-first, focus tốc độ tải và UX checkout.",
-  },
-  {
-    id: "realtime-chat",
-    name: "Realtime Chat",
-    description: "Ứng dụng chat thời gian thực với rooms, presence và thông báo trạng thái người dùng.",
-    github: "https://github.com",
-  },
-];
+export { PROJECT_BIRD_ITEMS };
+export type { ProjectBirdItem };

@@ -5,23 +5,23 @@ import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
 
-import { CameraNavController } from "./_components/CameraNavController";
-import { FantasyIslandFitted, type OrbitControlsInstance } from "./_components/FantasyIslandFitted";
-import { ImmersiveChrome } from "./_components/ImmersiveChrome";
-import { IslandIntroOverlay } from "./_components/IslandIntroOverlay";
-import { IslandSignpostMenu } from "./_components/IslandSignpostMenu";
+import { CameraNavController } from "./_components/navigation/CameraNavController";
+import { IslandSignpostMenu } from "./_components/navigation/IslandSignpostMenu";
+import { PortfolioNavProvider } from "./_components/navigation/PortfolioNavContext";
+import { FantasyIslandFitted, type OrbitControlsInstance } from "./_components/scene/FantasyIslandFitted";
+import { FloatingBoats } from "./_components/scene/FloatingBoat";
+import { ProjectBirdFlock } from "./_components/scene/ProjectBirdFlock";
+import { SkyBackdrop } from "./_components/scene/SkyBackdrop";
+import { TimeOfDayProvider } from "./_components/time/TimeOfDayContext";
+import { TimeOfDayLighting } from "./_components/time/TimeOfDayLighting";
+import { TimeOfDayToggle } from "./_components/time/TimeOfDayToggle";
+import { ImmersiveChrome } from "./_components/ui/ImmersiveChrome";
+import { IslandIntroOverlay } from "./_components/ui/IslandIntroOverlay";
 import {
   IslandLoadProgress,
   type IslandLoadSnapshot,
-} from "./_components/IslandLoadProgress";
-import { PortfolioInfoPanel } from "./_components/PortfolioInfoPanel";
-import { PortfolioNavProvider } from "./_components/PortfolioNavContext";
-import { SkyBackdrop } from "./_components/SkyBackdrop";
-import { FloatingBoats } from "./_components/FloatingBoat";
-import { TimeOfDayProvider } from "./_components/TimeOfDayContext";
-import { TimeOfDayLighting } from "./_components/TimeOfDayLighting";
-import { TimeOfDayToggle } from "./_components/TimeOfDayToggle";
-import { ProjectBirdFlock } from "./_components/ProjectBirdFlock";
+} from "./_components/ui/IslandLoadProgress";
+import { PortfolioInfoPanel } from "./_components/ui/PortfolioInfoPanel";
 
 function FantasyIslandCanvasInner() {
   const controlsRef = useRef<OrbitControlsInstance | null>(null);

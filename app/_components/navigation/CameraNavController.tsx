@@ -5,7 +5,7 @@ import { useEffect, useRef, type RefObject } from "react";
 import * as THREE from "three";
 
 import type { NavId } from "./portfolioNavData";
-import type { OrbitControlsInstance } from "./FantasyIslandFitted";
+import type { OrbitControlsInstance } from "../scene/FantasyIslandFitted";
 import { usePortfolioNav } from "./PortfolioNavContext";
 
 function easeInOutCubic(t: number) {

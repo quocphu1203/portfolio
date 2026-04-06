@@ -5,7 +5,7 @@ import { Html, useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { ISLAND_WATER_LEVEL } from "./islandSceneConstants";
-import { usePortfolioNav } from "./PortfolioNavContext";
+import { usePortfolioNav } from "../navigation/PortfolioNavContext";
 
 const BOAT_SCALE = 0.3;
 const BOAT_BASE_Y = ISLAND_WATER_LEVEL;

@@ -6,7 +6,7 @@ import { OrbitControls, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 
 import { IslandWater } from "./IslandWater";
-import { usePortfolioNav } from "./PortfolioNavContext";
+import { usePortfolioNav } from "../navigation/PortfolioNavContext";
 import { ISLAND_WATER_LEVEL } from "./islandSceneConstants";
 
 export type OrbitControlsInstance = React.ElementRef<typeof OrbitControls>;

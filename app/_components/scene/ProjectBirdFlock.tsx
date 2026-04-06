@@ -5,8 +5,8 @@ import { Html, useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 
-import { PROJECT_BIRD_ITEMS } from "./portfolioNavData";
-import { usePortfolioNav } from "./PortfolioNavContext";
+import { PROJECT_BIRD_ITEMS } from "../../../mock/projectsData";
+import { usePortfolioNav } from "../navigation/PortfolioNavContext";
 
 type BirdConfig = {
   radius: number;

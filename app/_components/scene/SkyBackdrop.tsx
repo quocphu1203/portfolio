@@ -5,7 +5,7 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { Sky } from "three/addons/objects/Sky.js";
 
-import { useTimeOfDay, TIME_PRESETS } from "./TimeOfDayContext";
+import { useTimeOfDay, TIME_PRESETS } from "../time/TimeOfDayContext";
 
 const DEFAULT = TIME_PRESETS.afternoon;
 const LERP_SPEED = 1.8;

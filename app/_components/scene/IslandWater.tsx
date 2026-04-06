@@ -6,7 +6,7 @@ import { useTexture } from "@react-three/drei";
 import * as THREE from "three";
 import { Water } from "three/addons/objects/Water.js";
 
-import { useTimeOfDay } from "./TimeOfDayContext";
+import { useTimeOfDay } from "../time/TimeOfDayContext";
 
 const WATER_NORMALS_URL = "https://threejs.org/examples/textures/waternormals.jpg";
 

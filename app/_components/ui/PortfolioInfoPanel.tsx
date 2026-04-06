@@ -4,8 +4,9 @@ import React, { useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 
-import { NAV_COPY, PROJECT_BIRD_ITEMS, type NavId } from "./portfolioNavData";
-import { usePortfolioNav } from "./PortfolioNavContext";
+import { PROJECT_BIRD_ITEMS } from "../../../mock/projectsData";
+import { NAV_COPY, type NavId } from "../navigation/portfolioNavData";
+import { usePortfolioNav } from "../navigation/PortfolioNavContext";
 
 export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
   const { activeSection, flyToDefault, selectedProjectId, setSelectedProjectId } = usePortfolioNav();
