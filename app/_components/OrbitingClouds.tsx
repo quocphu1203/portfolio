@@ -13,55 +13,106 @@ interface CloudConfig {
   initialAngle: number;
 }
 
-const CLOUD_COUNT = 6;
+function buildCloudMaterial(
+  opacity: number,
+  depthWrite: boolean
+): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity,
+    side: THREE.DoubleSide,
+    depthWrite,
+    toneMapped: false,
+  });
+}
 
-function generateCloudConfigs(): CloudConfig[] {
+function cloneCloudScene(
+  scene: THREE.Object3D,
+  opacity: number,
+  depthWrite: boolean
+): THREE.Object3D {
+  const clone = scene.clone(true);
+  clone.traverse((child) => {
+    if ((child as THREE.Mesh).isMesh) {
+      const mesh = child as THREE.Mesh;
+      mesh.castShadow = false;
+      mesh.receiveShadow = false;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      mesh.material = mats.map((mat) => {
+        const m = mat as THREE.MeshStandardMaterial;
+        const matOut = buildCloudMaterial(opacity, depthWrite);
+        if (m.map) {
+          matOut.map = m.map;
+          matOut.color.setHex(0xffffff);
+        } else {
+          matOut.color.copy(m.color ?? new THREE.Color(0xffffff));
+        }
+        return matOut;
+      });
+      mesh.material =
+        Array.isArray(mesh.material) && mesh.material.length === 1
+          ? mesh.material[0]
+          : mesh.material;
+    }
+  });
+  return clone;
+}
+
+/** Wide ring, soft — reads as sky / atmosphere behind the island. */
+function generateAtmosphereConfigs(count: number): CloudConfig[] {
   const configs: CloudConfig[] = [];
-  for (let i = 0; i < CLOUD_COUNT; i++) {
+  for (let i = 0; i < count; i++) {
     configs.push({
-      radius: 10 + Math.random() * 10,
-      height: 3 + Math.random() * 2,
-      speed: 0.03 + Math.random() * 0.01,
-      scale: 0.1 + Math.random() * 0.005,
-      initialAngle: (i / CLOUD_COUNT) * Math.PI * 2 + Math.random() * 0.5,
+      radius: 14 + Math.random() * 16,
+      height: 8 + Math.random() * 14,
+      speed: 0.02 + Math.random() * 0.012,
+      scale: 0.085 + Math.random() * 0.035,
+      initialAngle: (i / count) * Math.PI * 2 + Math.random() * 0.6,
     });
   }
   return configs;
 }
 
-export function OrbitingClouds() {
+/**
+ * Fewer clouds clustered into orbital “wedges” — softly masks some directions
+ * (portfolio metaphor: areas not unlocked yet). Rendered after the island.
+ */
+function generateVeilConfigs(count: number): CloudConfig[] {
+  const sectors = 3;
+  const configs: CloudConfig[] = [];
+  for (let i = 0; i < count; i++) {
+    const s = i % sectors;
+    const sectorStart = (s / sectors) * Math.PI * 2;
+    const angle = sectorStart + Math.random() * 0.95 + 0.08;
+    configs.push({
+      radius: 6.5 + Math.random() * 7,
+      height: 3.2 + Math.random() * 6,
+      speed: 0.014 + Math.random() * 0.009,
+      scale: 0.12 + Math.random() * 0.055,
+      initialAngle: angle,
+    });
+  }
+  return configs;
+}
+
+function CloudOrbiter({
+  opacity,
+  depthWrite,
+  renderOrder,
+  configs,
+}: {
+  opacity: number;
+  depthWrite: boolean;
+  renderOrder: number;
+  configs: CloudConfig[];
+}) {
   const { scene } = useGLTF("/low_poly_cloud.glb") as { scene: THREE.Object3D };
   const groupRef = useRef<THREE.Group>(null);
 
-  const configs = useMemo(() => generateCloudConfigs(), []);
-
   const cloudMeshes = useMemo(() => {
-    return configs.map(() => {
-      const clone = scene.clone(true);
-      clone.traverse((child) => {
-        if ((child as THREE.Mesh).isMesh) {
-          const mesh = child as THREE.Mesh;
-          mesh.castShadow = true;
-          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-          mesh.material = mats.map((mat) => {
-            const m = mat as THREE.MeshStandardMaterial;
-            return new THREE.MeshStandardMaterial({
-              map: m.map || undefined,
-              color: m.map ? 0xffffff : (m.color ?? new THREE.Color(0xffffff)),
-              transparent: true,
-              opacity: 0.85,
-              side: THREE.DoubleSide,
-              toneMapped: false,
-            });
-          });
-          mesh.material = Array.isArray(mesh.material) && mesh.material.length === 1
-            ? mesh.material[0]
-            : mesh.material;
-        }
-      });
-      return clone;
-    });
-  }, [scene, configs]);
+    return configs.map(() => cloneCloudScene(scene, opacity, depthWrite));
+  }, [scene, configs, opacity, depthWrite]);
 
   useFrame((_, delta) => {
     const group = groupRef.current;
@@ -73,14 +124,14 @@ export function OrbitingClouds() {
       cfg.initialAngle += cfg.speed * delta;
       child.position.x = Math.cos(cfg.initialAngle) * cfg.radius;
       child.position.z = Math.sin(cfg.initialAngle) * cfg.radius;
-      child.position.y = cfg.height + Math.sin(cfg.initialAngle * 3 + i * 2) * 0.3;
+      child.position.y = cfg.height + Math.sin(cfg.initialAngle * 3 + i * 2) * 0.35;
       child.rotation.y = -cfg.initialAngle + Math.PI / 2;
-      child.rotation.z = Math.sin(cfg.initialAngle * 2 + i) * 0.04;
+      child.rotation.z = Math.sin(cfg.initialAngle * 2 + i) * 0.05;
     });
   });
 
   return (
-    <group ref={groupRef}>
+    <group ref={groupRef} renderOrder={renderOrder}>
       {cloudMeshes.map((mesh, i) => (
         <primitive
           key={i}
@@ -95,5 +146,32 @@ export function OrbitingClouds() {
         />
       ))}
     </group>
+  );
+}
+
+const ATMOSPHERE_COUNT = 9;
+const VEIL_COUNT = 5;
+
+export function OrbitingCloudsAtmosphere() {
+  const configs = useMemo(() => generateAtmosphereConfigs(ATMOSPHERE_COUNT), []);
+  return (
+    <CloudOrbiter
+      configs={configs}
+      opacity={0.38}
+      depthWrite={false}
+      renderOrder={1}
+    />
+  );
+}
+
+export function OrbitingCloudsVeil() {
+  const configs = useMemo(() => generateVeilConfigs(VEIL_COUNT), []);
+  return (
+    <CloudOrbiter
+      configs={configs}
+      opacity={0.58}
+      depthWrite={false}
+      renderOrder={4}
+    />
   );
 }
