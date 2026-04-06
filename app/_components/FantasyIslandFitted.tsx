@@ -7,13 +7,31 @@ import * as THREE from "three";
 
 export type OrbitControlsInstance = React.ElementRef<typeof OrbitControls>;
 
+type ExtendedMaterial = THREE.Material & {
+  map?: THREE.Texture;
+  color?: THREE.Color;
+  emissive?: THREE.Color;
+  emissiveMap?: THREE.Texture;
+  normalMap?: THREE.Texture;
+  roughness?: number;
+  metalness?: number;
+  roughnessMap?: THREE.Texture;
+  metalnessMap?: THREE.Texture;
+  aoMap?: THREE.Texture;
+  aoMapIntensity?: number;
+  emissiveIntensity?: number;
+  transparent?: boolean;
+  opacity?: number;
+  side?: THREE.Side;
+};
+
 export function FantasyIslandFitted({
   controlsRef,
 }: {
   controlsRef: React.RefObject<OrbitControlsInstance | null>;
 }) {
   const { scene } = useGLTF("/fantasy_island.glb") as { scene: THREE.Object3D };
-  const { camera } = useThree();
+  const { camera, scene: threeScene } = useThree();
   const groupRef = useRef<THREE.Group | null>(null);
 
   useEffect(() => {
@@ -41,20 +59,96 @@ export function FantasyIslandFitted({
     // Orbit around the visual "middle" height (helps show full island).
     const targetY = (size.y / 2) * scale;
 
-    // Reduce IBL/reflection strength so the island doesn't look over-bright.
-    // (Environment texture from `SkyBackdrop` can make specular highlights too intense.)
+    const envMap = (threeScene as unknown as { environment?: THREE.Texture | null }).environment ?? null;
+
+    // Reduce island reflections but force the ocean to a PBR material so it can reflect the sky.
+    let oceanFound = false;
     scene.traverse((child) => {
       const mesh = child as THREE.Mesh;
       if (!mesh.isMesh) return;
 
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+
+      const isOcean = mesh.name === "Object_238" || mesh.name.includes("Object_238");
+      if (isOcean) oceanFound = true;
+
       const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      for (const mat of materials) {
-        const m = mat as unknown as { envMapIntensity?: number };
-        if (typeof m?.envMapIntensity === "number") {
-          m.envMapIntensity = 0.35;
+
+      const updated = isOcean
+        ? materials.map((mat) => {
+          const m = mat as unknown as ExtendedMaterial;
+
+          const params: THREE.MeshStandardMaterialParameters = {
+            color: new THREE.Color(0x8fb8c8),
+            emissive: new THREE.Color(0x1a0a12),
+            emissiveIntensity: 0.15,
+            roughness: 0.25,
+            metalness: 0.35,
+            envMap: envMap ?? undefined,
+            envMapIntensity: 1.6,
+            transparent: true,
+            opacity: 0.92,
+          };
+
+          if (m?.map instanceof THREE.Texture) params.map = m.map;
+          if (m?.emissiveMap instanceof THREE.Texture) params.emissiveMap = m.emissiveMap;
+          if (m?.normalMap instanceof THREE.Texture) params.normalMap = m.normalMap;
+
+          if (typeof m?.side !== "undefined") params.side = m.side;
+          const newMat = new THREE.MeshStandardMaterial(params);
+          newMat.needsUpdate = true;
+          return newMat;
+        })
+        : materials;
+
+      if (isOcean) {
+        mesh.material = updated.length === 1 ? updated[0] : updated;
+      } else {
+        // For non-ocean meshes, keep it a bit less reflective.
+        for (const mat of materials) {
+          const m = mat as unknown as { envMapIntensity?: number };
+          if (typeof m?.envMapIntensity === "number") m.envMapIntensity = 0.25;
         }
       }
     });
+
+    if (!oceanFound) {
+      console.warn("[FantasyIslandFitted] Ocean mesh not found (Object_238).");
+    }
+    if (oceanFound && !envMap) {
+      console.warn("[FantasyIslandFitted] Ocean envMap is null at material build time.");
+    }
+
+    // Re-apply envMap once more in case `SkyBackdrop` environment is assigned async.
+    const timeoutId = window.setTimeout(() => {
+      const envMapLate =
+        (threeScene as unknown as { environment?: THREE.Texture | null }).environment ?? null;
+
+      if (oceanFound && !envMapLate) {
+        console.warn("[FantasyIslandFitted] Ocean envMap is null after late re-apply.");
+      }
+
+      scene.traverse((child) => {
+        const mesh = child as THREE.Mesh;
+        if (!mesh.isMesh) return;
+
+        const isOcean = mesh.name === "Object_238" || mesh.name.includes("Object_238");
+        if (!isOcean) return;
+
+        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        const updated = materials.map((mat) => {
+          if (mat instanceof THREE.MeshStandardMaterial) {
+            mat.envMap = envMapLate;
+            mat.envMapIntensity = 2.0;
+            mat.needsUpdate = true;
+          }
+          return mat;
+        });
+
+        mesh.material = updated.length === 1 ? updated[0] : updated;
+      });
+    }, 0);
 
     // Update controls target to match our centered transform.
     const controls = controlsRef.current;
@@ -104,26 +198,32 @@ export function FantasyIslandFitted({
     const fovRad = (cam.fov * Math.PI) / 180;
     const distance = desiredRadius / Math.tan(fovRad / 2);
 
-    // Framing tuning: zoom in so the water fills the viewport.
-    // Aim for a more "eye-level" / horizontal view over the island.
     const cameraDistanceMultiplier = 0.13;
-    const heightMultiplier = 0.02;
 
     cam.position.set(
-      -3.1,
-      targetY + desiredRadius * heightMultiplier,
+      -5,
+      targetY * 0.7,
       -(distance * cameraDistanceMultiplier)
     );
-    cam.lookAt(0, targetY, 0);
+    cam.lookAt(0, targetY * 0.7, 0);
     cam.updateProjectionMatrix();
 
     // Enforce zoom-out limit.
     // `maxDistance` in OrbitControls is the max distance from `controls.target`.
     if (controls) {
-      controls.maxDistance = 40;
+      const currentDistance = cam.position.distanceTo(controls.target);
+      controls.maxDistance = currentDistance;
+
+      const polarAngle = controls.getPolarAngle();
+      controls.minPolarAngle = polarAngle;
+      controls.maxPolarAngle = polarAngle;
+
       controls.update();
     }
-  }, [camera, controlsRef, scene]);
+
+    // Cleanup for the timeout.
+    return () => window.clearTimeout(timeoutId);
+  }, [camera, controlsRef, scene, threeScene]);
 
   return (
     <group ref={groupRef}>

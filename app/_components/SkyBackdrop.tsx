@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import { useGLTF } from "@react-three/drei";
+import { useThree } from "@react-three/fiber";
 import * as THREE from "three";
 
 import { extractFirstTextureMap } from "./textureUtils";
@@ -11,7 +12,8 @@ import { extractFirstTextureMap } from "./textureUtils";
 const SKY_SCALE = 50;
 
 export function SkyBackdrop() {
-  const { scene } = useGLTF("/sky.glb") as { scene: THREE.Object3D };
+  const { scene } = useGLTF("/sea_sky.glb") as { scene: THREE.Object3D };
+  const { gl } = useThree();
 
   const skyScene = useMemo(() => {
     const clone = scene.clone(true);
@@ -64,18 +66,39 @@ export function SkyBackdrop() {
     return envTex;
   }, [scene]);
 
+  const pmremEnvMap = useMemo(() => {
+    if (!envTexture) return null;
+
+    // Three.js expects a prefiltered environment map (PMREM) for physically-based reflections.
+    const pmremGenerator = new THREE.PMREMGenerator(gl);
+    pmremGenerator.compileEquirectangularShader();
+    const renderTarget = pmremGenerator.fromEquirectangular(envTexture);
+
+    // Dispose generator but keep the generated texture.
+    pmremGenerator.dispose();
+
+    return renderTarget.texture;
+  }, [envTexture, gl]);
+
+  useEffect(() => {
+    if (!envTexture) {
+      console.warn("[SkyBackdrop] Could not extract an environment texture from sky.glb.");
+    }
+    if (envTexture && !pmremEnvMap) {
+      console.warn("[SkyBackdrop] PMREM env map generation returned null/undefined.");
+    }
+  }, [envTexture, pmremEnvMap]);
+
   return (
     <>
       <primitive
         object={skyScene}
         scale={[SKY_SCALE, SKY_SCALE, SKY_SCALE]}
-        // Rotate sky to the right ~45deg.
-        rotation={[0, Math.PI / 2, 0]}
+        position={[0, -1.5, 0]}
+        rotation={[0, Math.PI / 2 + Math.PI, 0]}
         dispose={null}
       />
-      {envTexture && (
-        <primitive attach="environment" object={envTexture} />
-      )}
+      {pmremEnvMap && <primitive attach="environment" object={pmremEnvMap} />}
     </>
   );
 }

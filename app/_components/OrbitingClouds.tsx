@@ -1,0 +1,99 @@
+"use client";
+
+import React, { useMemo, useRef } from "react";
+import { useGLTF } from "@react-three/drei";
+import { useFrame } from "@react-three/fiber";
+import * as THREE from "three";
+
+interface CloudConfig {
+  radius: number;
+  height: number;
+  speed: number;
+  scale: number;
+  initialAngle: number;
+}
+
+const CLOUD_COUNT = 6;
+
+function generateCloudConfigs(): CloudConfig[] {
+  const configs: CloudConfig[] = [];
+  for (let i = 0; i < CLOUD_COUNT; i++) {
+    configs.push({
+      radius: 10 + Math.random() * 10,
+      height: 3 + Math.random() * 2,
+      speed: 0.03 + Math.random() * 0.01,
+      scale: 0.1 + Math.random() * 0.005,
+      initialAngle: (i / CLOUD_COUNT) * Math.PI * 2 + Math.random() * 0.5,
+    });
+  }
+  return configs;
+}
+
+export function OrbitingClouds() {
+  const { scene } = useGLTF("/low_poly_cloud.glb") as { scene: THREE.Object3D };
+  const groupRef = useRef<THREE.Group>(null);
+
+  const configs = useMemo(() => generateCloudConfigs(), []);
+
+  const cloudMeshes = useMemo(() => {
+    return configs.map(() => {
+      const clone = scene.clone(true);
+      clone.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          const mesh = child as THREE.Mesh;
+          mesh.castShadow = true;
+          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          mesh.material = mats.map((mat) => {
+            const m = mat as THREE.MeshStandardMaterial;
+            return new THREE.MeshStandardMaterial({
+              map: m.map || undefined,
+              color: m.map ? 0xffffff : (m.color ?? new THREE.Color(0xffffff)),
+              transparent: true,
+              opacity: 0.85,
+              side: THREE.DoubleSide,
+              toneMapped: false,
+            });
+          });
+          mesh.material = Array.isArray(mesh.material) && mesh.material.length === 1
+            ? mesh.material[0]
+            : mesh.material;
+        }
+      });
+      return clone;
+    });
+  }, [scene, configs]);
+
+  useFrame((_, delta) => {
+    const group = groupRef.current;
+    if (!group) return;
+
+    group.children.forEach((child, i) => {
+      const cfg = configs[i];
+      if (!cfg) return;
+      cfg.initialAngle += cfg.speed * delta;
+      child.position.x = Math.cos(cfg.initialAngle) * cfg.radius;
+      child.position.z = Math.sin(cfg.initialAngle) * cfg.radius;
+      child.position.y = cfg.height + Math.sin(cfg.initialAngle * 3 + i * 2) * 0.3;
+      child.rotation.y = -cfg.initialAngle + Math.PI / 2;
+      child.rotation.z = Math.sin(cfg.initialAngle * 2 + i) * 0.04;
+    });
+  });
+
+  return (
+    <group ref={groupRef}>
+      {cloudMeshes.map((mesh, i) => (
+        <primitive
+          key={i}
+          object={mesh}
+          scale={configs[i].scale}
+          rotation={[0, Math.PI, 0]}
+          position={[
+            Math.cos(configs[i].initialAngle) * configs[i].radius,
+            configs[i].height,
+            Math.sin(configs[i].initialAngle) * configs[i].radius,
+          ]}
+        />
+      ))}
+    </group>
+  );
+}
