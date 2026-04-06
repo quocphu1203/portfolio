@@ -17,7 +17,10 @@ import {
 import { PortfolioInfoPanel } from "./_components/PortfolioInfoPanel";
 import { PortfolioNavProvider } from "./_components/PortfolioNavContext";
 import { SkyBackdrop } from "./_components/SkyBackdrop";
-import { OrbitingCloudsAtmosphere, OrbitingCloudsVeil } from "./_components/OrbitingClouds";
+import { FloatingBoats } from "./_components/FloatingBoat";
+import { TimeOfDayProvider } from "./_components/TimeOfDayContext";
+import { TimeOfDayLighting } from "./_components/TimeOfDayLighting";
+import { TimeOfDayToggle } from "./_components/TimeOfDayToggle";
 
 function FantasyIslandCanvasInner() {
   const controlsRef = useRef<OrbitControlsInstance | null>(null);
@@ -67,26 +70,9 @@ function FantasyIslandCanvasInner() {
         }}
       >
         <IslandLoadProgress onChange={onLoadChange} />
-        <color attach="background" args={["#d4c8d0"]} />
+        <TimeOfDayLighting />
 
         <Suspense fallback={null}>
-          <ambientLight intensity={0.6} />
-          <directionalLight
-            position={[-8, 15, -4]}
-            intensity={0.9}
-            color="#fff0e8"
-            castShadow
-            shadow-mapSize-width={2048}
-            shadow-mapSize-height={2048}
-            shadow-camera-left={-50}
-            shadow-camera-right={50}
-            shadow-camera-top={50}
-            shadow-camera-bottom={-50}
-            shadow-camera-near={0.5}
-            shadow-camera-far={80}
-            shadow-bias={-0.001}
-          />
-          <hemisphereLight args={["#d4c8d0", "#4a6e7e", 0.5]} />
           <SkyBackdrop />
           <OrbitControls
             ref={controlsRef}
@@ -95,10 +81,9 @@ function FantasyIslandCanvasInner() {
             maxDistance={40}
           />
           <CameraNavController controlsRef={controlsRef} enabled={started} />
-          {/* <OrbitingCloudsAtmosphere /> */}
           <FantasyIslandFitted controlsRef={controlsRef} />
+          <FloatingBoats />
           <IslandSignpostMenu visible={started} />
-          {/* <OrbitingCloudsVeil /> */}
         </Suspense>
       </Canvas>
 
@@ -112,6 +97,7 @@ function FantasyIslandCanvasInner() {
 
       <ImmersiveChrome active={started} />
       <PortfolioInfoPanel visible={started} />
+      <TimeOfDayToggle visible={started} />
     </div>
   );
 }
@@ -119,7 +105,9 @@ function FantasyIslandCanvasInner() {
 export default function FantasyIslandCanvas() {
   return (
     <PortfolioNavProvider>
-      <FantasyIslandCanvasInner />
+      <TimeOfDayProvider>
+        <FantasyIslandCanvasInner />
+      </TimeOfDayProvider>
     </PortfolioNavProvider>
   );
 }

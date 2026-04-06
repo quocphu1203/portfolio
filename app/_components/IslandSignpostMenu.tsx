@@ -3,7 +3,7 @@
 import { Text } from "@react-three/drei";
 import React from "react";
 
-import { SIGN_LABELS, SIGNPOST_ANCHOR, type NavId } from "./portfolioNavData";
+import { SIGN_LABELS, SIGNPOST_ANCHOR, SIGNPOST_SCALE, type NavId } from "./portfolioNavData";
 import { usePortfolioNav } from "./PortfolioNavContext";
 
 type SignDef = {
@@ -18,22 +18,27 @@ type SignDef = {
 };
 
 const SIGNS: SignDef[] = [
-  { id: "projects", y: 4.1, rotY: -0.35, arm: 1.15, w: 2.4, h: 0.62, color: "#5c4a8f", emissive: "#7c6faf" },
-  { id: "articles", y: 3.05, rotY: 0.2, arm: 1.0, w: 2.2, h: 0.55, color: "#3d6b78", emissive: "#5a9daa" },
-  { id: "about", y: 2.0, rotY: -0.5, arm: 0.95, w: 2.0, h: 0.52, color: "#8b5a4a", emissive: "#c4956a" },
-  { id: "credits", y: 0.95, rotY: 0.45, arm: 0.88, w: 1.85, h: 0.48, color: "#6a5a40", emissive: "#a89868" },
+  { id: "about", y: 1.4, rotY: 0, arm: 1.12, w: 1.95, h: 0.46, color: "#8b5a4a", emissive: "#c4956a" },
+  { id: "articles", y: 0.7, rotY: 0, arm: 1.12, w: 1.55, h: 0.45, color: "#3d6b78", emissive: "#5a9daa" },
+  { id: "credits", y: 0.02, rotY: 0, arm: 1.12, w: 2.05, h: 0.43, color: "#6a5a40", emissive: "#a89868" },
+  { id: "projects", y: -0.62, rotY: 0, arm: 1.12, w: 1.7, h: 0.48, color: "#5c4a8f", emissive: "#7c6faf" },
 ];
 
 function SignBoard({ def, onPick }: { def: SignDef; onPick: (id: NavId) => void }) {
   const { rotY, arm, w, h, y, color, emissive, id } = def;
   const cx = Math.cos(rotY) * arm;
   const cz = Math.sin(rotY) * arm;
+  const textPaddingX = 0.18;
+  const textMaxWidth = Math.max(0.6, w - textPaddingX * 2);
+  const textFontSize = Math.min(0.34, h * 0.56);
+  const borderThickness = 0.005;
+  const borderDepth = 0.045;
 
   return (
     <group position={[0, y, 0]}>
       <group
         position={[cx, 0, cz]}
-        rotation={[0, rotY, 0]}
+        rotation={[0, rotY + Math.PI, 0]}
         onClick={(e) => {
           e.stopPropagation();
           onPick(id);
@@ -41,21 +46,58 @@ function SignBoard({ def, onPick }: { def: SignDef; onPick: (id: NavId) => void 
       >
         <mesh castShadow receiveShadow>
           <boxGeometry args={[w, h, 0.07]} />
-          <meshStandardMaterial
+          <meshPhysicalMaterial
             color={color}
             emissive={emissive}
-            emissiveIntensity={0.55}
-            roughness={0.45}
-            metalness={0.15}
+            emissiveIntensity={0.18}
+            transparent
+            opacity={0.34}
+            roughness={0.22}
+            metalness={0.04}
+            transmission={0.58}
+            thickness={0.18}
+            ior={1.2}
           />
         </mesh>
+        <mesh position={[0, 0, 0.007]} castShadow receiveShadow>
+          <boxGeometry args={[Math.max(0.3, w - 0.18), Math.max(0.2, h - 0.14), 0.04]} />
+          <meshPhysicalMaterial
+            color="#dbe7ee"
+            transparent
+            opacity={0.16}
+            roughness={0.05}
+            metalness={0}
+            transmission={0.9}
+            thickness={0.26}
+            ior={1.35}
+          />
+        </mesh>
+        <group position={[0, 0, 0.028]}>
+          <mesh castShadow receiveShadow position={[0, h / 2 - borderThickness / 2, 0]}>
+            <boxGeometry args={[w, borderThickness, borderDepth]} />
+            <meshStandardMaterial color={color} emissive={emissive} emissiveIntensity={0.2} />
+          </mesh>
+          <mesh castShadow receiveShadow position={[0, -h / 2 + borderThickness / 2, 0]}>
+            <boxGeometry args={[w, borderThickness, borderDepth]} />
+            <meshStandardMaterial color={color} emissive={emissive} emissiveIntensity={0.2} />
+          </mesh>
+          <mesh castShadow receiveShadow position={[-w / 2 + borderThickness / 2, 0, 0]}>
+            <boxGeometry args={[borderThickness, h - borderThickness * 2, borderDepth]} />
+            <meshStandardMaterial color={color} emissive={emissive} emissiveIntensity={0.2} />
+          </mesh>
+          <mesh castShadow receiveShadow position={[w / 2 - borderThickness / 2, 0, 0]}>
+            <boxGeometry args={[borderThickness, h - borderThickness * 2, borderDepth]} />
+            <meshStandardMaterial color={color} emissive={emissive} emissiveIntensity={0.2} />
+          </mesh>
+        </group>
         <Text
           position={[0, 0, 0.045]}
-          fontSize={0.38}
+          fontSize={textFontSize}
+          maxWidth={textMaxWidth}
           color="#f5f2eb"
           anchorX="center"
           anchorY="middle"
-          outlineWidth={0.02}
+          outlineWidth={0.015}
           outlineColor="#1a1510"
         >
           {SIGN_LABELS[id]}
@@ -66,33 +108,22 @@ function SignBoard({ def, onPick }: { def: SignDef; onPick: (id: NavId) => void 
 }
 
 export function IslandSignpostMenu({ visible }: { visible: boolean }) {
-  const { requestNav } = usePortfolioNav();
+  const { requestNav, signpostTransform } = usePortfolioNav();
 
   if (!visible) return null;
 
-  const [ax, ay, az] = SIGNPOST_ANCHOR;
+  const [ax, ay, az] = signpostTransform?.position ?? SIGNPOST_ANCHOR;
+  const anchorRotY = (signpostTransform?.rotationY ?? -0.48) + 1;
   return (
-    <group position={[ax, ay, az]} rotation={[0, -0.48, 0]} name="portfolio-signpost" scale={0.34}>
-      <mesh castShadow receiveShadow position={[0, 3.2, 0]}>
-        <cylinderGeometry args={[0.14, 0.18, 7.2, 10]} />
-        <meshStandardMaterial color="#2a2420" roughness={0.85} metalness={0.05} />
-      </mesh>
-      <mesh castShadow position={[0, 6.75, 0]}>
-        <sphereGeometry args={[0.32, 12, 12]} />
-        <meshStandardMaterial
-          color="#fff6e8"
-          emissive="#ffe8cc"
-          emissiveIntensity={0.35}
-          roughness={0.35}
-        />
-      </mesh>
+    <group
+      position={[ax, ay + 0.8, az]}
+      rotation={[0, anchorRotY, 0]}
+      name="portfolio-signpost"
+      scale={SIGNPOST_SCALE}
+    >
       {SIGNS.map((def) => (
         <SignBoard key={def.id} def={def} onPick={requestNav} />
       ))}
-      <mesh position={[0.15, 5.95, 0.12]} rotation={[0, 0.2, 0.08]} castShadow>
-        <boxGeometry args={[0.55, 0.35, 0.04]} />
-        <meshStandardMaterial color="#3a4a38" emissive="#2a3a28" emissiveIntensity={0.2} />
-      </mesh>
     </group>
   );
 }
