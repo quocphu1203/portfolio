@@ -6,6 +6,7 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { ISLAND_WATER_LEVEL } from "./islandSceneConstants";
 import { usePortfolioNav } from "../navigation/PortfolioNavContext";
+import { useTimeOfDay } from "../time/TimeOfDayContext";
 
 const BOAT_SCALE = 0.3;
 const BOAT_BASE_Y = ISLAND_WATER_LEVEL;
@@ -14,6 +15,9 @@ const ORBIT_RADIUS = 20;
 
 function SingleBoat({ scene }: { scene: THREE.Object3D }) {
   const ref = useRef<THREE.Group>(null);
+  const portLightRef = useRef<THREE.PointLight>(null);
+  const starboardLightRef = useRef<THREE.PointLight>(null);
+  const mastLightRef = useRef<THREE.PointLight>(null);
   const tRef = useRef(0);
   const bobTRef = useRef(0);
   const bubbleTRef = useRef(0);
@@ -23,6 +27,7 @@ function SingleBoat({ scene }: { scene: THREE.Object3D }) {
   const pausedXZRef = useRef(new THREE.Vector2());
   const pausedHeadingRef = useRef(0);
   const { setBoatPose, boatPaused, boatThoughtVisible } = usePortfolioNav();
+  const { activePreset } = useTimeOfDay();
 
   const cloned = useMemo(() => {
     const c = scene.clone(true);
@@ -93,11 +98,51 @@ function SingleBoat({ scene }: { scene: THREE.Object3D }) {
       position: [boatX, currentY, boatZ],
       heading: ref.current.rotation.y,
     });
+
+    const nightBlend = THREE.MathUtils.clamp((activePreset.starsOpacity - 0.3) / 0.7, 0, 1);
+    const targetSideIntensity = 3.2 * nightBlend;
+    const targetMastIntensity = 2.6 * nightBlend;
+    const fade = 1 - Math.exp(-6 * delta);
+
+    if (portLightRef.current) {
+      portLightRef.current.intensity += (targetSideIntensity - portLightRef.current.intensity) * fade;
+    }
+    if (starboardLightRef.current) {
+      starboardLightRef.current.intensity +=
+        (targetSideIntensity - starboardLightRef.current.intensity) * fade;
+    }
+    if (mastLightRef.current) {
+      mastLightRef.current.intensity += (targetMastIntensity - mastLightRef.current.intensity) * fade;
+    }
   });
 
   return (
     <group ref={ref} scale={BOAT_SCALE}>
       <primitive object={cloned} dispose={null} />
+      <pointLight
+        ref={portLightRef}
+        position={[-2.6, 4.2, 5.2]}
+        color="#ffd38a"
+        intensity={0}
+        distance={16}
+        decay={1.6}
+      />
+      <pointLight
+        ref={starboardLightRef}
+        position={[2.6, 4.2, 5.2]}
+        color="#ffd38a"
+        intensity={0}
+        distance={16}
+        decay={1.6}
+      />
+      <pointLight
+        ref={mastLightRef}
+        position={[0, 8.6, 0.8]}
+        color="#fff1bf"
+        intensity={0}
+        distance={14}
+        decay={1.7}
+      />
       {boatThoughtVisible && (
         <Html position={[-7.1, 15.4, 1.0]} center distanceFactor={8}>
           <div
