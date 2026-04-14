@@ -15,7 +15,7 @@ export function TimeOfDayToggle({ visible }: { visible: boolean }) {
   return (
     <div
       className={[
-        "fixed right-6 top-6 z-10 flex items-center gap-0.5 rounded-full border border-white/10 bg-black/30 p-1 backdrop-blur-md",
+        "fixed right-3 top-3 z-10 flex max-w-[calc(100vw-1.5rem)] items-center gap-0.5 overflow-x-auto rounded-full border border-white/10 bg-black/30 p-1 backdrop-blur-md md:right-6 md:top-6",
         "transition-opacity duration-700",
         visible ? "opacity-100" : "pointer-events-none opacity-0",
       ].join(" ")}
@@ -26,7 +26,7 @@ export function TimeOfDayToggle({ visible }: { visible: boolean }) {
           type="button"
           onClick={() => setTimeOfDay(id)}
           className={[
-            "flex items-center gap-1.5 rounded-full px-2 py-1.5 text-[9px] font-medium uppercase tracking-[0.12em] transition-all duration-300",
+            "flex shrink-0 items-center gap-1 rounded-full px-1.5 py-1.5 text-[8px] font-medium uppercase tracking-[0.08em] transition-all duration-300 sm:gap-1.5 sm:px-2 sm:text-[9px] sm:tracking-[0.12em]",
             timeOfDay === id
               ? "bg-white/15 text-white/90"
               : "text-white/35 hover:text-white/60",
@@ -39,7 +39,8 @@ export function TimeOfDayToggle({ visible }: { visible: boolean }) {
               transform: timeOfDay === id ? "scale(1.5)" : "scale(1)",
             }}
           />
-          {TIME_LABELS[id]}
+          <span className="hidden sm:inline">{TIME_LABELS[id]}</span>
+          <span className="sm:hidden">{TIME_LABELS[id].slice(0, 3)}</span>
         </button>
       ))}
 
@@ -50,7 +51,7 @@ export function TimeOfDayToggle({ visible }: { visible: boolean }) {
         onClick={() => setRealtimeMode(mode !== "realtime")}
         title={mode === "realtime" ? "Đang theo giờ thực" : "Bật giờ thực"}
         className={[
-          "flex items-center justify-center rounded-full px-2 py-1.5 text-[9px] font-medium uppercase tracking-[0.12em] transition-all duration-300",
+          "flex shrink-0 items-center justify-center rounded-full px-1.5 py-1.5 text-[8px] font-medium uppercase tracking-[0.08em] transition-all duration-300 sm:px-2 sm:text-[9px] sm:tracking-[0.12em]",
           mode === "realtime"
             ? "bg-white/15 text-white/90"
             : "text-white/35 hover:text-white/60",

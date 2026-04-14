@@ -107,7 +107,7 @@ function SignBoard({ def, onPick }: { def: SignDef; onPick: (id: NavId) => void 
   );
 }
 
-export function IslandSignpostMenu({ visible }: { visible: boolean }) {
+export function IslandSignpostMenu({ visible, scaleMultiplier = 1 }: { visible: boolean; scaleMultiplier?: number }) {
   const { requestNav, signpostTransform } = usePortfolioNav();
 
   if (!visible) return null;
@@ -119,7 +119,7 @@ export function IslandSignpostMenu({ visible }: { visible: boolean }) {
       position={[ax, ay + 0.8, az]}
       rotation={[0, anchorRotY, 0]}
       name="portfolio-signpost"
-      scale={SIGNPOST_SCALE}
+      scale={SIGNPOST_SCALE * scaleMultiplier}
     >
       {SIGNS.map((def) => (
         <SignBoard key={def.id} def={def} onPick={requestNav} />

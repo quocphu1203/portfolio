@@ -17,7 +17,7 @@ export function IslandIntroOverlay({
 
   return (
     <div
-      className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-12 bg-[#0a0c10]/95 px-6 backdrop-blur-[14px]"
+      className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-8 bg-[#0a0c10]/95 px-4 backdrop-blur-[14px] sm:gap-10 sm:px-6 md:gap-12"
     >
       <p className="text-[10px] font-medium tracking-[0.5em] text-[#6a7f8e] uppercase">
         Island portfolio
@@ -31,7 +31,7 @@ export function IslandIntroOverlay({
         <span className="text-[#6a7f8e]">%</span>
       </h1>
 
-      <div className="w-full max-w-[min(22rem,90vw)]">
+      <div className="w-full max-w-[min(22rem,92vw)] sm:max-w-[min(22rem,90vw)]">
         <div
           className="h-[2px] overflow-hidden rounded-full bg-[#1a222c]"
           role="progressbar"
@@ -51,7 +51,7 @@ export function IslandIntroOverlay({
         disabled={!canStart}
         onClick={onStart}
         className={[
-          "border-b-2 pb-1 text-sm font-semibold tracking-[0.35em] uppercase transition-colors",
+          "min-h-11 border-b-2 px-2 pb-1 text-sm font-semibold tracking-[0.28em] uppercase transition-colors sm:tracking-[0.35em]",
           canStart
             ? "cursor-pointer border-[#e8eef2] text-[#e8eef2] hover:border-[#8fb8c8] hover:text-[#8fb8c8]"
             : "cursor-not-allowed border-[#2f3a45] text-[#3d4a58]",

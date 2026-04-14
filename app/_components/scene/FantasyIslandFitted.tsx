@@ -3,6 +3,7 @@
 import React, { useEffect, useRef } from "react";
 import { useThree } from "@react-three/fiber";
 import { OrbitControls, useGLTF } from "@react-three/drei";
+import { RigidBody } from "@react-three/rapier";
 import * as THREE from "three";
 
 import { IslandWater } from "./IslandWater";
@@ -10,6 +11,7 @@ import { usePortfolioNav } from "../navigation/PortfolioNavContext";
 import { ISLAND_WATER_LEVEL } from "./islandSceneConstants";
 
 export type OrbitControlsInstance = React.ElementRef<typeof OrbitControls>;
+const COLLIDER_ROOT_NAMES = ["Object_231", "Object_534", "doc", "Object_546", "Object_135"] as const;
 
 export function FantasyIslandFitted({
   controlsRef,
@@ -72,7 +74,7 @@ export function FantasyIslandFitted({
       });
 
       // Mark selected objects as collision meshes for runtime raycast checks.
-      const colliderRoots = ["Object_231", "Object_534", "doc", "Object_546"]
+      const colliderRoots = ["Object_231", "Object_534", "doc", "Object_546", "Object_135"]
         .map((name) => scene.getObjectByName(name))
         .filter(Boolean);
       for (const root of colliderRoots) {
@@ -134,10 +136,30 @@ export function FantasyIslandFitted({
   }, [camera, controlsRef, scene, setOrbitTargetY, setSignpostTransform]);
 
   const waterSize = 6000;
+  const colliderClonesRef = useRef<THREE.Object3D[] | null>(null);
+  if (!colliderClonesRef.current) {
+    colliderClonesRef.current = COLLIDER_ROOT_NAMES
+      .map((name) => scene.getObjectByName(name))
+      .filter(Boolean)
+      .map((root) => {
+        const clone = root!.clone(true);
+        clone.traverse((child) => {
+          const mesh = child as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          mesh.visible = false;
+        });
+        return clone;
+      });
+  }
 
   return (
     <group ref={groupRef}>
       <primitive object={scene} dispose={null} />
+      {colliderClonesRef.current?.map((colliderObj, idx) => (
+        <RigidBody key={`island-collider-${idx}`} type="fixed" colliders="trimesh" friction={1}>
+          <primitive object={colliderObj} />
+        </RigidBody>
+      ))}
       <IslandWater size={waterSize} y={ISLAND_WATER_LEVEL} />
     </group>
   );

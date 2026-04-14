@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { X } from "lucide-react";
 
 import { EXPERIENCE_MILESTONES } from "../../../mock/experienceData";
 import { PROJECT_BIRD_ITEMS } from "../../../mock/projectsData";
@@ -32,6 +33,27 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [visible, activeSection, flyToDefault, selectedProjectId, setSelectedProjectId]);
 
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  const handleClose = useCallback(() => {
+    if (activeSection === "projects" && selectedProjectId) {
+      setSelectedProjectId(null);
+      return;
+    }
+    flyToDefault();
+  }, [activeSection, selectedProjectId, setSelectedProjectId, flyToDefault]);
+
+  useEffect(() => {
+    if (!visible || !activeSection) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        handleClose();
+      }
+    };
+    window.addEventListener("mousedown", handleClickOutside);
+    return () => window.removeEventListener("mousedown", handleClickOutside);
+  }, [visible, activeSection, handleClose]);
+
   if (!visible || !activeSection) return null;
 
   const copy = NAV_COPY[activeSection as NavId];
@@ -40,8 +62,23 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
   const isProjects = activeSection === "projects";
   const isExperience = activeSection === "credits";
   const selectedProject = PROJECT_BIRD_ITEMS.find((p) => p.id === selectedProjectId) ?? null;
+  const aboutParagraphs = copy.body
+    .split(/\n\s*\n/g)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
 
   if (isProjects && !selectedProject) return null;
+
+  const closeButton = (
+    <button
+      type="button"
+      onClick={handleClose}
+      className="absolute top-3 right-3 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-[#5a7a8a]/60 bg-[#0e1a22]/70 text-[#b0c8d4] backdrop-blur-sm transition hover:border-[#8fb8c8] hover:bg-[#162a35]/80 hover:text-white md:top-4 md:right-4 md:h-8 md:w-8"
+      aria-label="Đóng"
+    >
+      <X size={16} />
+    </button>
+  );
 
   return (
     <AnimatePresence mode="wait">
@@ -49,24 +86,38 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
         <Dialog open={isAbout} onOpenChange={(open) => !open && flyToDefault()}>
           <DialogContent
             showCloseButton={false}
-            className="h-[75vh] w-[80vw] max-h-[75vh] max-w-[80vw] sm:max-w-[80vw] rounded-2xl border border-[#87a9bb]/50 bg-[#0a1118]/70 p-0 shadow-[0_20px_80px_rgba(0,0,0,0.55)] backdrop-blur-2xl"
+            className="h-[78vh] w-[94vw] max-h-[78vh] max-w-[94vw] rounded-2xl border border-[#87a9bb]/50 bg-[#0a1118]/70 p-0 shadow-[0_20px_80px_rgba(0,0,0,0.55)] backdrop-blur-2xl sm:h-[76vh] sm:w-[90vw] sm:max-w-[90vw] md:w-[85vw] md:max-w-[85vw] xl:h-[75vh] xl:w-[80vw] xl:max-w-[80vw]"
           >
+            <DialogClose asChild>
+              <button
+                type="button"
+                className="absolute top-3 right-3 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-[#5a7a8a]/60 bg-[#0e1a22]/70 text-[#b0c8d4] backdrop-blur-sm transition hover:border-[#8fb8c8] hover:bg-[#162a35]/80 hover:text-white md:top-4 md:right-4 md:h-8 md:w-8"
+                aria-label="Đóng"
+              >
+                <X size={16} />
+              </button>
+            </DialogClose>
             <motion.div
               initial={{ opacity: 0, scale: 0.94, y: 18 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.96, y: 10 }}
               transition={{ duration: 0.32, ease: "easeOut" }}
-              className="h-full overflow-auto p-10"
+              className="h-full overflow-auto p-4 pt-12 sm:p-6 sm:pt-12 md:p-8 md:pt-14 lg:p-10"
             >
-              <p className="mb-1 text-[10px] tracking-[0.35em] text-[#bfd2de] uppercase">Island</p>
-              <DialogTitle id="portfolio-panel-title" className="mb-4 text-3xl font-medium text-[#f7fbff] drop-shadow-[0_2px_4px_rgba(0,0,0,0.45)]">
-                {copy.title}
-              </DialogTitle>
-              <DialogDescription className="mb-6 text-base leading-relaxed text-[#e4eef5]">
-                {copy.body}
-              </DialogDescription>
-              {copy.links && copy.links.length > 0 && (
-                <ul className="mb-6 flex flex-wrap gap-2.5">
+              <div className="mx-auto w-full max-w-4xl">
+                <p className="mb-1 text-[10px] tracking-[0.35em] text-[#bfd2de] uppercase">Island</p>
+                <DialogTitle id="portfolio-panel-title" className="mb-5 text-2xl font-medium text-[#f7fbff] drop-shadow-[0_2px_4px_rgba(0,0,0,0.45)] sm:text-3xl">
+                  {copy.title}
+                </DialogTitle>
+                <DialogDescription className="mb-7 text-[15px] leading-8 text-[#e4eef5] sm:text-base">
+                  <div className="space-y-4 text-balance">
+                    {aboutParagraphs.map((paragraph) => (
+                      <p key={paragraph}>{paragraph}</p>
+                    ))}
+                  </div>
+                </DialogDescription>
+                {copy.links && copy.links.length > 0 && (
+                  <ul className="mb-6 flex flex-wrap gap-2.5">
                   {copy.links.map((link) => (
                     <li key={link.href + link.label}>
                       <a
@@ -77,19 +128,21 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
                       </a>
                     </li>
                   ))}
-                </ul>
-              )}
+                  </ul>
+                )}
+              </div>
             </motion.div>
           </DialogContent>
         </Dialog>
       ) : (
         <motion.div
+          ref={panelRef}
           key="section-panel-side"
           className={[
             "fixed z-520 cursor-auto",
             isSkills || isProjects || isExperience
-              ? "right-6 top-1/2 h-[min(78vh,46rem)] w-[min(46vw,40rem)] -translate-y-1/2"
-              : "right-6 top-1/2 w-[min(22rem,calc(100vw-3rem))] -translate-y-1/2",
+              ? "inset-x-3 bottom-3 h-[min(72vh,40rem)] w-auto md:inset-x-auto md:right-4 md:top-1/2 md:bottom-auto md:h-[min(78vh,46rem)] md:w-[min(52vw,40rem)] md:-translate-y-1/2 lg:right-6 lg:w-[min(46vw,40rem)]"
+              : "inset-x-3 bottom-3 w-auto md:inset-x-auto md:right-4 md:top-1/2 md:bottom-auto md:w-[min(22rem,calc(100vw-3rem))] md:-translate-y-1/2 lg:right-6",
           ].join(" ")}
           role="dialog"
           aria-labelledby="portfolio-panel-title"
@@ -100,17 +153,19 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
         >
           <div
             className={[
+              "relative",
               isSkills || isProjects || isExperience
-                ? "h-full overflow-y-auto [overflow-anchor:none] rounded-2xl border border-[#87a9bb]/50 bg-[#0a1118]/68 p-8 shadow-[0_20px_80px_rgba(0,0,0,0.55)] backdrop-blur-2xl"
-                : "border border-[#2a3545]/90 bg-[#0e1318]/95 p-6 shadow-2xl backdrop-blur-md",
+                ? "h-full overflow-y-auto [overflow-anchor:none] rounded-2xl border border-[#87a9bb]/50 bg-[#0a1118]/68 p-4 pt-12 shadow-[0_20px_80px_rgba(0,0,0,0.55)] backdrop-blur-2xl sm:p-6 sm:pt-12 md:p-8 md:pt-14"
+                : "rounded-2xl border border-[#2a3545]/90 bg-[#0e1318]/95 p-4 pt-12 shadow-2xl backdrop-blur-md sm:p-6 sm:pt-12",
             ].join(" ")}
           >
+            {closeButton}
             <p className="mb-1 text-[10px] tracking-[0.35em] text-[#bfd2de] uppercase">Island</p>
             <h2
               id="portfolio-panel-title"
               className={[
                 "mb-3 font-medium text-[#f7fbff] drop-shadow-[0_2px_4px_rgba(0,0,0,0.45)]",
-                isSkills || isProjects || isExperience ? "text-3xl" : "text-xl",
+                isSkills || isProjects || isExperience ? "text-2xl sm:text-3xl" : "text-lg sm:text-xl",
               ].join(" ")}
             >
               {isProjects ? selectedProject?.name ?? "Projects" : copy.title}
@@ -118,7 +173,8 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
             <p
               className={[
                 "leading-relaxed text-[#dce9f1]",
-                isSkills || isProjects || isExperience ? "mb-7 text-base" : "mb-5 text-sm",
+                !isProjects ? "whitespace-pre-line" : "",
+                isSkills || isProjects || isExperience ? "mb-6 text-sm sm:mb-7 sm:text-base" : "mb-5 text-sm",
               ].join(" ")}
             >
               {isProjects

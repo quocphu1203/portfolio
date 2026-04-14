@@ -72,7 +72,7 @@ export function ImmersiveChrome({ active }: ImmersiveChromeProps) {
 
       <div
         className={[
-          "pointer-events-none fixed bottom-10 left-0 right-0 z-8 text-center text-[11px] tracking-[0.25em] text-[#9fb0bd]/80 uppercase transition-opacity duration-700",
+          "pointer-events-none fixed left-0 right-0 z-8 text-center text-[10px] tracking-[0.18em] text-[#9fb0bd]/80 uppercase transition-opacity duration-700 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:text-[11px] sm:tracking-[0.25em] sm:bottom-10",
           hintVisible ? "opacity-100" : "opacity-0",
         ].join(" ")}
         aria-live="polite"

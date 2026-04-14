@@ -3,6 +3,7 @@
 import React, { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
+import { Physics } from "@react-three/rapier";
 import * as THREE from "three";
 
 import { CameraNavController } from "./_components/navigation/CameraNavController";
@@ -27,6 +28,7 @@ import { PortfolioInfoPanel } from "./_components/ui/PortfolioInfoPanel";
 function FantasyIslandCanvasInner() {
   const controlsRef = useRef<OrbitControlsInstance | null>(null);
   const [started, setStarted] = useState(false);
+  const [viewportWidth, setViewportWidth] = useState(1440);
   const [load, setLoad] = useState<IslandLoadSnapshot>({
     progress: 0,
     active: false,
@@ -48,6 +50,20 @@ function FantasyIslandCanvasInner() {
     };
   }, []);
 
+  useEffect(() => {
+    const sync = () => setViewportWidth(window.innerWidth);
+    sync();
+    window.addEventListener("resize", sync, { passive: true });
+    return () => window.removeEventListener("resize", sync);
+  }, []);
+
+  const isMobile = viewportWidth < 768;
+  const isTablet = viewportWidth >= 768 && viewportWidth < 1024;
+  const cameraFov = isMobile ? 40 : isTablet ? 37 : 34;
+  const controlsMinDistance = isMobile ? 2.2 : 2.5;
+  const controlsMaxDistance = isMobile ? 34 : isTablet ? 38 : 40;
+  const signpostScaleMultiplier = isMobile ? 1.22 : isTablet ? 1.1 : 1;
+
   return (
     <div
       className={[
@@ -57,7 +73,7 @@ function FantasyIslandCanvasInner() {
     >
       <Canvas
         shadows
-        camera={{ position: [0, 4.5, 14], fov: 34, near: 0.1, far: 2_000_000 }}
+        camera={{ position: [0, 4.5, 14], fov: cameraFov, near: 0.1, far: 2_000_000 }}
         className={started ? "opacity-100" : "opacity-[0.22]"}
         style={{
           width: "100%",
@@ -79,15 +95,17 @@ function FantasyIslandCanvasInner() {
           <OrbitControls
             ref={controlsRef}
             enablePan={false}
-            minDistance={2.5}
-            maxDistance={40}
+            minDistance={controlsMinDistance}
+            maxDistance={controlsMaxDistance}
           />
-          <CameraNavController controlsRef={controlsRef} enabled={started} />
-          <FantasyIslandFitted controlsRef={controlsRef} />
-          <FloatingBoats />
-          <ProjectBirdFlock />
-          <ExperienceMilestoneTrail />
-          <IslandSignpostMenu visible={started} />
+          <Physics gravity={[0, -24, 0]} timeStep="vary">
+            <CameraNavController controlsRef={controlsRef} enabled={started} />
+            <FantasyIslandFitted controlsRef={controlsRef} />
+            <FloatingBoats />
+            <ProjectBirdFlock />
+            <ExperienceMilestoneTrail />
+            <IslandSignpostMenu visible={started} scaleMultiplier={signpostScaleMultiplier} />
+          </Physics>
         </Suspense>
       </Canvas>
 

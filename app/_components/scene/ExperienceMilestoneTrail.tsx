@@ -4,19 +4,20 @@ import React, { useEffect, useMemo, useRef } from "react";
 import { Html } from "@react-three/drei";
 import { useGLTF } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
+import { RigidBody, type RapierRigidBody, useRapier } from "@react-three/rapier";
 import * as THREE from "three";
 import { clone } from "three/examples/jsm/utils/SkeletonUtils.js";
 
 import { EXPERIENCE_MILESTONES } from "../../../mock/experienceData";
 import { usePortfolioNav } from "../navigation/PortfolioNavContext";
 
-const JOURNEY_DURATION_SECONDS = 19;
+const JOURNEY_DURATION_SECONDS = 11;
 const CAT_SCALE = 1 / 80;
 const CAT_WALL_CLEARANCE = 0;
 const CAT_COLLISION_RADIUS = 0.1;
 const DOC_SURFACE_OFFSET_Y = 0.03;
-const FLAG_OUTER_OFFSET = 0;
-const FLAG_SURFACE_OFFSET_Y = 0.02;
+const FLAG_OUTER_OFFSET = 0.55;
+const FLAG_SURFACE_OFFSET_Y = 0.05;
 const FALLBACK_PATH: [number, number, number][] = [
   [3.2, 2.1, 2.2],
   [2.4, 2.9, 1.3],
@@ -35,90 +36,145 @@ function lerpPath(points: THREE.Vector3[], progress: number) {
   return new THREE.Vector3().lerpVectors(a, b, t);
 }
 
-function pointsFromPathMesh(pathMesh: THREE.Object3D) {
-  const mesh = pathMesh as THREE.Mesh;
+function extractCenterlineByTriangleWalk(mesh: THREE.Mesh) {
   const geometry = mesh.geometry as THREE.BufferGeometry | undefined;
   const posAttr = geometry?.getAttribute("position");
   if (!posAttr) return [] as THREE.Vector3[];
 
-  const worldPoints: THREE.Vector3[] = [];
+  const verts: THREE.Vector3[] = [];
   const wp = new THREE.Vector3();
   for (let i = 0; i < posAttr.count; i += 1) {
     wp.fromBufferAttribute(posAttr, i);
     mesh.localToWorld(wp);
-    worldPoints.push(wp.clone());
+    verts.push(wp.clone());
   }
 
-  if (worldPoints.length === 0) return worldPoints;
-  const cleaned: THREE.Vector3[] = [worldPoints[0]];
-  for (let i = 1; i < worldPoints.length; i += 1) {
-    const prev = cleaned[cleaned.length - 1];
-    const cur = worldPoints[i];
-    if (cur.distanceTo(prev) < 0.1) continue;
-    cleaned.push(cur);
+  const indexAttr = geometry?.getIndex();
+  const triCount = indexAttr ? indexAttr.count / 3 : posAttr.count / 3;
+  if (triCount < 1) return [] as THREE.Vector3[];
+
+  const triVerts = (ti: number): [number, number, number] => {
+    if (indexAttr) {
+      return [indexAttr.getX(ti * 3), indexAttr.getX(ti * 3 + 1), indexAttr.getX(ti * 3 + 2)];
+    }
+    return [ti * 3, ti * 3 + 1, ti * 3 + 2];
+  };
+
+  const centroids: THREE.Vector3[] = [];
+  for (let ti = 0; ti < triCount; ti += 1) {
+    const [a, b, c] = triVerts(ti);
+    centroids.push(
+      new THREE.Vector3(
+        (verts[a].x + verts[b].x + verts[c].x) / 3,
+        (verts[a].y + verts[b].y + verts[c].y) / 3,
+        (verts[a].z + verts[b].z + verts[c].z) / 3
+      )
+    );
   }
-  return cleaned;
+
+  const edgeKey = (a: number, b: number) => (a < b ? `${a}_${b}` : `${b}_${a}`);
+  const edgeToTris = new Map<string, number[]>();
+  for (let ti = 0; ti < triCount; ti += 1) {
+    const [a, b, c] = triVerts(ti);
+    for (const ek of [edgeKey(a, b), edgeKey(b, c), edgeKey(c, a)]) {
+      if (!edgeToTris.has(ek)) edgeToTris.set(ek, []);
+      edgeToTris.get(ek)!.push(ti);
+    }
+  }
+
+  const triAdj: Set<number>[] = Array.from({ length: triCount }, () => new Set());
+  for (const tris of edgeToTris.values()) {
+    if (tris.length === 2) {
+      triAdj[tris[0]].add(tris[1]);
+      triAdj[tris[1]].add(tris[0]);
+    }
+  }
+
+  let startTri = 0;
+  for (let ti = 1; ti < triCount; ti += 1) {
+    if (centroids[ti].y < centroids[startTri].y) startTri = ti;
+  }
+
+  const visited = new Set<number>();
+  const path: number[] = [startTri];
+  visited.add(startTri);
+
+  let current = startTri;
+  let prevDir = new THREE.Vector3(0, 1, 0);
+
+  for (let step = 0; step < triCount; step += 1) {
+    const neighbors = triAdj[current];
+    let bestTri = -1;
+    let bestScore = -Infinity;
+
+    for (const n of neighbors) {
+      if (visited.has(n)) continue;
+      const dir = centroids[n].clone().sub(centroids[current]);
+      const dist = dir.length();
+      if (dist < 0.0001) continue;
+      dir.normalize();
+      const continuity = dir.dot(prevDir);
+      const upward = dir.y;
+      const score = continuity * 0.55 + upward * 0.45;
+      if (score > bestScore) {
+        bestScore = score;
+        bestTri = n;
+      }
+    }
+
+    if (bestTri < 0) break;
+    prevDir = centroids[bestTri].clone().sub(centroids[current]).normalize();
+    visited.add(bestTri);
+    path.push(bestTri);
+    current = bestTri;
+  }
+
+  if (path.length < 2) return [] as THREE.Vector3[];
+
+  const raw = path.map((ti) => centroids[ti]);
+
+  const decimated: THREE.Vector3[] = [raw[0]];
+  const minSeg = 0.2;
+  for (let i = 1; i < raw.length; i += 1) {
+    if (raw[i].distanceTo(decimated[decimated.length - 1]) >= minSeg) {
+      decimated.push(raw[i]);
+    }
+  }
+  if (decimated.length > 1 && decimated[decimated.length - 1].distanceTo(raw[raw.length - 1]) > 0.05) {
+    decimated.push(raw[raw.length - 1]);
+  }
+
+  for (let pass = 0; pass < 3; pass += 1) {
+    for (let i = 1; i < decimated.length - 1; i += 1) {
+      const prev = decimated[i - 1];
+      const cur = decimated[i];
+      const next = decimated[i + 1];
+      cur.x = prev.x * 0.25 + cur.x * 0.5 + next.x * 0.25;
+      cur.y = prev.y * 0.25 + cur.y * 0.5 + next.y * 0.25;
+      cur.z = prev.z * 0.25 + cur.z * 0.5 + next.z * 0.25;
+    }
+  }
+  return decimated;
 }
 
 function pointsFromPathObject(pathObj: THREE.Object3D) {
-  const allPoints: THREE.Vector3[] = [];
+  const candidates: THREE.Vector3[][] = [];
   pathObj.traverse((child) => {
     const mesh = child as THREE.Mesh;
     if (!mesh.isMesh) return;
-    const pts = pointsFromPathMesh(mesh);
-    if (pts.length >= 2) allPoints.push(...pts);
+    const centerline = extractCenterlineByTriangleWalk(mesh);
+    if (centerline.length >= 2) candidates.push(centerline);
   });
-  if (allPoints.length === 0) {
-    const direct = pointsFromPathMesh(pathObj);
-    if (direct.length >= 2) allPoints.push(...direct);
-  }
-  if (allPoints.length < 2) return [] as THREE.Vector3[];
-
-  // Build a stable centerline by height slices to avoid random vertex ordering.
-  let minY = allPoints[0].y;
-  let maxY = allPoints[0].y;
-  for (let i = 1; i < allPoints.length; i += 1) {
-    const y = allPoints[i].y;
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
-  }
-  const range = Math.max(0.001, maxY - minY);
-  const bucketCount = Math.max(20, Math.min(72, Math.floor(range / 0.12)));
-  const buckets = Array.from({ length: bucketCount }, () => ({
-    sumX: 0,
-    sumY: 0,
-    sumZ: 0,
-    count: 0,
-  }));
-
-  for (const p of allPoints) {
-    const t = THREE.MathUtils.clamp((p.y - minY) / range, 0, 1);
-    const idx = Math.min(bucketCount - 1, Math.floor(t * (bucketCount - 1)));
-    const b = buckets[idx];
-    b.sumX += p.x;
-    b.sumY += p.y;
-    b.sumZ += p.z;
-    b.count += 1;
-  }
-
-  const layeredPath: THREE.Vector3[] = [];
-  for (const b of buckets) {
-    if (b.count === 0) continue;
-    layeredPath.push(new THREE.Vector3(b.sumX / b.count, b.sumY / b.count, b.sumZ / b.count));
-  }
-  if (layeredPath.length < 2) return [] as THREE.Vector3[];
-
-  const stabilized = layeredPath.map((p) => p.clone());
-  for (let pass = 0; pass < 2; pass += 1) {
-    for (let i = 1; i < stabilized.length - 1; i += 1) {
-      const prev = stabilized[i - 1];
-      const cur = stabilized[i];
-      const next = stabilized[i + 1];
-      cur.x = prev.x * 0.2 + cur.x * 0.6 + next.x * 0.2;
-      cur.z = prev.z * 0.2 + cur.z * 0.6 + next.z * 0.2;
+  if (candidates.length === 0) {
+    const mesh = pathObj as THREE.Mesh;
+    if (mesh.isMesh) {
+      const centerline = extractCenterlineByTriangleWalk(mesh);
+      if (centerline.length >= 2) candidates.push(centerline);
     }
   }
-  return stabilized;
+  if (candidates.length === 0) return [] as THREE.Vector3[];
+  candidates.sort((a, b) => b.length - a.length);
+  return candidates[0];
 }
 
 function smoothPath(points: THREE.Vector3[]) {
@@ -143,9 +199,9 @@ function offsetOutward(point: THREE.Vector3, tangent: THREE.Vector3, amount: num
 }
 
 function flagProgressMarks(count: number) {
-  if (count <= 1) return [0.22];
-  const start = 0.18;
-  const end = 1;
+  if (count <= 1) return [0.5];
+  const start = 0.12;
+  const end = 0.92;
   return Array.from({ length: count }, (_, i) => {
     const t = i / (count - 1);
     return THREE.MathUtils.lerp(start, end, t);
@@ -161,12 +217,27 @@ export function ExperienceMilestoneTrail() {
     setExperienceCatPose,
   } = usePortfolioNav();
   const { scene: worldScene } = useThree();
+  const { world, rapier } = useRapier();
   const { scene: catScene, animations } = useGLTF("/cat_rigged.glb") as {
     scene: THREE.Object3D;
     animations: THREE.AnimationClip[];
   };
   const catModel = useMemo(() => clone(catScene), [catScene]);
-  const catRef = useRef<THREE.Group | null>(null);
+  const { scene: torchScene } = useGLTF("/torch.glb") as { scene: THREE.Object3D };
+  const torchModels = useMemo(() => {
+    return EXPERIENCE_MILESTONES.map(() => {
+      const c = torchScene.clone(true);
+      c.traverse((child) => {
+        const mesh = child as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+      });
+      return c;
+    });
+  }, [torchScene]);
+  const catBodyRef = useRef<RapierRigidBody | null>(null);
+  const catPosRef = useRef(new THREE.Vector3());
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const activeActionRef = useRef<THREE.AnimationAction | null>(null);
   const elapsedRef = useRef(0);
@@ -196,7 +267,14 @@ export function ExperienceMilestoneTrail() {
     return meshes;
   }, [worldScene]);
   const wallMeshes = useMemo(() => {
-    const wallRoots = ["Object_231", "Object_534"]
+    const meshesFromTag: THREE.Mesh[] = [];
+    worldScene.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (mesh.isMesh && mesh.userData.isIslandCollider) meshesFromTag.push(mesh);
+    });
+    if (meshesFromTag.length > 0) return meshesFromTag;
+
+    const wallRoots = ["Object_231", "Object_534", "Object_135", "Object_546", "doc"]
       .map((name) => worldScene.getObjectByName(name))
       .filter(Boolean);
     if (wallRoots.length === 0) return [] as THREE.Mesh[];
@@ -204,16 +282,8 @@ export function ExperienceMilestoneTrail() {
     for (const wallRoot of wallRoots) {
       wallRoot?.traverse((child) => {
         const mesh = child as THREE.Mesh;
-        if (mesh.isMesh && mesh.userData.isIslandCollider) meshes.push(mesh);
+        if (mesh.isMesh) meshes.push(mesh);
       });
-    }
-    if (meshes.length === 0) {
-      for (const wallRoot of wallRoots) {
-        wallRoot?.traverse((child) => {
-          const mesh = child as THREE.Mesh;
-          if (mesh.isMesh) meshes.push(mesh);
-        });
-      }
     }
     return meshes;
   }, [worldScene]);
@@ -224,31 +294,50 @@ export function ExperienceMilestoneTrail() {
   );
   const flagPositions = useMemo(() => {
     if (pathPoints.length < 2) return [] as THREE.Vector3[];
-    const downRay = new THREE.Raycaster();
+    const ray = new THREE.Raycaster();
     const down = new THREE.Vector3(0, -1, 0);
-    // Flags are just markers sampled from the doc path.
+    const up = new THREE.Vector3(0, 1, 0);
+
+    const snapToDoc = (pos: THREE.Vector3): boolean => {
+      if (docMeshes.length === 0) return false;
+      ray.set(new THREE.Vector3(pos.x, pos.y + 5, pos.z), down);
+      ray.far = 12;
+      const hitsDown = ray.intersectObjects(docMeshes, true);
+      if (hitsDown.length > 0) {
+        pos.copy(hitsDown[0].point);
+        pos.y += FLAG_SURFACE_OFFSET_Y;
+        return true;
+      }
+      ray.set(new THREE.Vector3(pos.x, pos.y - 2, pos.z), up);
+      ray.far = 10;
+      const hitsUp = ray.intersectObjects(docMeshes, true);
+      if (hitsUp.length > 0) {
+        pos.copy(hitsUp[0].point);
+        pos.y += FLAG_SURFACE_OFFSET_Y;
+        return true;
+      }
+      return false;
+    };
+
     return progressMarks.map((t) => {
-      const p = lerpPath(pathPoints, t);
-      const radial = new THREE.Vector3(p.x, 0, p.z);
-      if (radial.lengthSq() > 0.0001) {
-        radial.normalize();
-        p.addScaledVector(radial, FLAG_OUTER_OFFSET);
-      }
+      const base = lerpPath(pathPoints, t);
+      const tang = tangentAt(pathPoints, t);
+      const perpendicular = new THREE.Vector3(-tang.z, 0, tang.x).normalize();
+      const radial = new THREE.Vector3(base.x, 0, base.z);
+      if (radial.lengthSq() > 0.0001) radial.normalize();
+      const outSign = perpendicular.dot(radial) >= 0 ? 1 : -1;
 
-      if (docMeshes.length > 0) {
-        const from = new THREE.Vector3(p.x, p.y + 2.5, p.z);
-        downRay.set(from, down);
-        downRay.far = 6;
-        const hits = downRay.intersectObjects(docMeshes, true);
-        if (hits.length > 0) {
-          p.copy(hits[0].point);
-          p.y += FLAG_SURFACE_OFFSET_Y;
-          return p;
-        }
-      }
+      const offset = base.clone().addScaledVector(perpendicular, FLAG_OUTER_OFFSET * outSign);
+      if (snapToDoc(offset)) return offset;
 
-      p.y += 0.03;
-      return p;
+      const offset2 = base.clone().addScaledVector(perpendicular, -FLAG_OUTER_OFFSET * outSign);
+      if (snapToDoc(offset2)) return offset2;
+
+      const noOffset = base.clone();
+      if (snapToDoc(noOffset)) return noOffset;
+
+      base.y += FLAG_SURFACE_OFFSET_Y;
+      return base;
     });
   }, [pathPoints, progressMarks, docMeshes]);
 
@@ -261,7 +350,7 @@ export function ExperienceMilestoneTrail() {
     activeActionRef.current = action;
     action.reset();
     action.setLoop(THREE.LoopRepeat, Infinity);
-    action.setEffectiveTimeScale(0.95);
+    action.setEffectiveTimeScale(1.8);
     action.play();
     return () => {
       action.stop();
@@ -277,16 +366,18 @@ export function ExperienceMilestoneTrail() {
     runningRef.current = true;
     unlockedRef.current = 0;
     setExperienceUnlockedCount(0);
-    const cat = catRef.current;
-    if (cat) {
+    const body = catBodyRef.current;
+    if (body) {
       const start = pathPoints[0];
       const startTan = tangentAt(pathPoints, 0);
-      cat.position.copy(offsetOutward(start, startTan, CAT_WALL_CLEARANCE));
-      cat.rotation.set(0, 0, 0);
+      const spawnPos = offsetOutward(start, startTan, CAT_WALL_CLEARANCE);
+      body.setTranslation({ x: spawnPos.x, y: spawnPos.y, z: spawnPos.z }, true);
+      body.setNextKinematicTranslation({ x: spawnPos.x, y: spawnPos.y, z: spawnPos.z });
+      catPosRef.current.copy(spawnPos);
       prevPosRef.current.copy(start);
       headingRef.current = 0;
       setExperienceCatPose({
-        position: [cat.position.x, cat.position.y, cat.position.z],
+        position: [spawnPos.x, spawnPos.y, spawnPos.z],
         heading: headingRef.current,
       });
     }
@@ -314,8 +405,8 @@ export function ExperienceMilestoneTrail() {
     const progress = Math.min(1, elapsedRef.current / JOURNEY_DURATION_SECONDS);
     const pos = lerpPath(pathPoints, progress);
     const tangent = tangentAt(pathPoints, progress);
-    const cat = catRef.current;
-    if (cat) {
+    const body = catBodyRef.current;
+    if (body) {
       const dx = pos.x - prevPosRef.current.x;
       const dz = pos.z - prevPosRef.current.z;
       const len = Math.sqrt(dx * dx + dz * dz);
@@ -340,28 +431,57 @@ export function ExperienceMilestoneTrail() {
           nextPos.y = floorHits[0].point.y + DOC_SURFACE_OFFSET_Y;
         }
       }
-      const currentPos = cat.position.clone();
+      const currentPos = catPosRef.current.clone();
       const moveDir = nextPos.clone().sub(currentPos);
-      if (wallMeshes.length > 0 && moveDir.lengthSq() > 0.000001) {
-        const ray = raycasterRef.current;
-        ray.set(currentPos, moveDir.clone().normalize());
-        ray.far = moveDir.length() + CAT_COLLISION_RADIUS;
-        const hits = ray.intersectObjects(wallMeshes, true);
-        if (hits.length > 0) {
-          const hit = hits[0];
-          if (hit.face) {
-            const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize();
-            nextPos.copy(hit.point).addScaledVector(normal, CAT_COLLISION_RADIUS);
-          } else {
-            nextPos.copy(currentPos);
+      if (moveDir.lengthSq() > 0.000001) {
+        let collisionResolved = false;
+        if (world && rapier) {
+          const dir = moveDir.clone().normalize();
+          const rayOrigin = currentPos.clone().add(new THREE.Vector3(0, 0.08, 0));
+          const ray = new rapier.Ray(
+            { x: rayOrigin.x, y: rayOrigin.y, z: rayOrigin.z },
+            { x: dir.x, y: dir.y, z: dir.z }
+          );
+          const maxToi = moveDir.length() + CAT_COLLISION_RADIUS;
+          const hit = world.castRayAndGetNormal(ray, maxToi, false);
+          if (hit) {
+            const toi = (hit as { toi?: number; timeOfImpact?: number }).toi
+              ?? (hit as { timeOfImpact?: number }).timeOfImpact
+              ?? 0;
+            const n = (hit as { normal?: { x: number; y: number; z: number } }).normal;
+            const normal = n
+              ? new THREE.Vector3(n.x, n.y, n.z).normalize()
+              : new THREE.Vector3(-dir.x, 0, -dir.z).normalize();
+            const hitPoint = rayOrigin.clone().addScaledVector(dir, Math.max(0, toi));
+            nextPos.copy(hitPoint).addScaledVector(normal, CAT_COLLISION_RADIUS + 0.01);
+            collisionResolved = true;
+          }
+        }
+        if (!collisionResolved && wallMeshes.length > 0) {
+          const ray = raycasterRef.current;
+          ray.set(currentPos, moveDir.clone().normalize());
+          ray.far = moveDir.length() + CAT_COLLISION_RADIUS;
+          const hits = ray.intersectObjects(wallMeshes, true);
+          if (hits.length > 0) {
+            const hit = hits[0];
+            if (hit.face) {
+              const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize();
+              nextPos.copy(hit.point).addScaledVector(normal, CAT_COLLISION_RADIUS);
+            } else {
+              nextPos.copy(currentPos);
+            }
           }
         }
       }
-      cat.position.copy(nextPos);
-      cat.rotation.set(pitch, headingRef.current + Math.PI, roll);
+      catPosRef.current.copy(nextPos);
+      body.setNextKinematicTranslation({ x: nextPos.x, y: nextPos.y, z: nextPos.z });
+      const q = new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(pitch, headingRef.current + Math.PI, roll, "XYZ")
+      );
+      body.setNextKinematicRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
       prevPosRef.current.copy(pos);
       setExperienceCatPose({
-        position: [cat.position.x, cat.position.y, cat.position.z],
+        position: [nextPos.x, nextPos.y, nextPos.z],
         heading: headingRef.current,
       });
     }
@@ -377,7 +497,7 @@ export function ExperienceMilestoneTrail() {
     }
 
     if (progress >= 1) {
-      if (cat) {
+      if (body) {
         const endPos = lerpPath(pathPoints, 1);
         const finalPos = offsetOutward(endPos, tangentAt(pathPoints, 1), CAT_WALL_CLEARANCE);
         if (docMeshes.length > 0) {
@@ -389,7 +509,8 @@ export function ExperienceMilestoneTrail() {
             finalPos.y = floorHits[0].point.y + DOC_SURFACE_OFFSET_Y;
           }
         }
-        cat.position.copy(finalPos);
+        catPosRef.current.copy(finalPos);
+        body.setNextKinematicTranslation({ x: finalPos.x, y: finalPos.y, z: finalPos.z });
       }
       runningRef.current = false;
     }
@@ -405,19 +526,15 @@ export function ExperienceMilestoneTrail() {
         const flagYaw = Math.atan2(tangent.x, tangent.z);
         return (
           <group key={EXPERIENCE_MILESTONES[idx].id} position={flagPos.toArray()} rotation={[0, flagYaw, 0]}>
-            <mesh position={[0, 0.55, 0]} castShadow receiveShadow>
-              <cylinderGeometry args={[0.035, 0.035, 1.1, 12]} />
-              <meshStandardMaterial color="#c8d6df" metalness={0.35} roughness={0.5} />
-            </mesh>
-            <mesh position={[0.26, 0.84, 0]} castShadow receiveShadow>
-              <boxGeometry args={[0.45, 0.24, 0.03]} />
-              <meshStandardMaterial
-                color={isUnlocked ? "#f4ad3d" : "#5f6e79"}
-                emissive={isUnlocked ? "#a75a17" : "#1d252b"}
-                emissiveIntensity={isUnlocked ? 0.32 : 0.1}
-              />
-            </mesh>
-            <Html position={[0.05, 1.25, 0]} distanceFactor={16} center zIndexRange={[8, 0]}>
+            <primitive object={torchModels[idx]} scale={0.35} position={[0, 0, 0]} />
+            <pointLight
+              position={[0, 5, 0]}
+              color={isUnlocked ? "#ffa842" : "#4a6070"}
+              intensity={isUnlocked ? 4.5 : 0.4}
+              distance={isUnlocked ? 5 : 1.5}
+              decay={1.8}
+            />
+            <Html position={[0.05, 1.45, 0]} distanceFactor={16} center zIndexRange={[8, 0]}>
               <span
                 className={[
                   "pointer-events-none rounded-full border px-2 py-0.5 text-[10px] tracking-[0.08em] whitespace-nowrap",
@@ -433,16 +550,24 @@ export function ExperienceMilestoneTrail() {
         );
       })}
 
-      <group ref={catRef} position={[0, 0, 0]}>
+      <RigidBody
+        ref={catBodyRef}
+        type="kinematicPosition"
+        colliders="ball"
+        friction={1}
+        restitution={0}
+        position={[0, 0, 0]}
+      >
         <primitive
           object={catModel}
           scale={CAT_SCALE}
           position={[0, 0.03, 0]}
           rotation={[0, Math.PI / 2, 0]}
         />
-      </group>
+      </RigidBody>
     </group>
   );
 }
 
 useGLTF.preload("/cat_rigged.glb");
+useGLTF.preload("/torch.glb");
