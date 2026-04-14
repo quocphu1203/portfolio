@@ -14,27 +14,11 @@ export const EXPERIENCE_SECTION = {
 
 export const EXPERIENCE_MILESTONES: ExperienceMilestone[] = [
   {
-    id: "intern-front-end",
-    period: "2021",
-    title: "Front-end Intern",
-    company: "Studio nội bộ",
-    summary: "Làm landing page và dashboard cơ bản, tập trung chuẩn hóa component và responsive layout.",
-    skills: ["HTML/CSS", "React", "Figma handoff"],
-  },
-  {
-    id: "junior-fullstack",
-    period: "2022 - 2023",
-    title: "Junior Full-stack Developer",
-    company: "Product Team",
-    summary: "Phát triển module quản lý công việc, xử lý API và cải thiện trải nghiệm sử dụng trên mobile.",
-    skills: ["Next.js", "Node.js", "PostgreSQL"],
-  },
-  {
-    id: "mid-level-3d",
-    period: "2024 - Nay",
-    title: "Frontend Developer (3D/Interactive)",
-    company: "Freelance",
-    summary: "Xây dựng portfolio 3D tương tác, tối ưu performance scene và đồng bộ motion với điều hướng.",
-    skills: ["Three.js", "React Three Fiber", "Framer Motion"],
+    id: "intern",
+    period: "2024-Nay",
+    title: "Project Leader",
+    company: "GLD-LAB",
+    summary: "Phát triển và quản lý dự án, tối ưu hóa hiệu suất và đảm bảo chất lượng.",
+    skills: ["Next.js", "React Native", "Node.js", "PostgreSQL"],
   },
 ];

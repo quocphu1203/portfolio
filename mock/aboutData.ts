@@ -5,5 +5,5 @@ Hành trình đến với IT của tôi bắt đầu từ những điều rất 
 Không chỉ dừng lại ở công nghệ, tôi còn có một tâm hồn yêu cái đẹp. Nhiếp ảnh, đặc biệt là chụp phong cảnh, là cách tôi lưu giữ những khoảnh khắc yên bình và truyền tải cảm xúc qua từng khung hình. Đó là sự cân bằng giữa logic của một lập trình viên và cảm xúc của một người nghệ sĩ.
 Bên cạnh đó, tôi dành một tình cảm đặc biệt cho Nhật Bản — từ văn hóa, con người cho đến ngôn ngữ. Tiếng Nhật đối với tôi không chỉ là một kỹ năng, mà còn là cầu nối để tôi tiến gần hơn tới môi trường làm việc chuyên nghiệp, kỷ luật và đầy cảm hứng mà tôi luôn hướng tới.
 Với tôi, hành trình này vẫn đang tiếp tục — không ngừng học hỏi, không ngừng phát triển, và từng bước tiến gần hơn đến phiên bản tốt nhất của chính mình.`,
-  links: [{ label: "LinkedIn", href: "#" }],
+  links: [{ label: "Facebook", href: "https://www.facebook.com/wako.12.k" }, { label: "Github", href: "https://github.com/quocphu1203" }],
 };
