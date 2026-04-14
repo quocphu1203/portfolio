@@ -49,7 +49,7 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
         <Dialog open={isAbout} onOpenChange={(open) => !open && flyToDefault()}>
           <DialogContent
             showCloseButton={false}
-            className="h-[75vh] w-[80vw] max-h-[75vh] max-w-[80vw] sm:max-w-[80vw] border border-[#87a9bb]/45 rounded-2xl bg-[#0e1318]/24 p-0 shadow-2xl backdrop-blur-3xl"
+            className="h-[75vh] w-[80vw] max-h-[75vh] max-w-[80vw] sm:max-w-[80vw] rounded-2xl border border-[#87a9bb]/50 bg-[#0a1118]/70 p-0 shadow-[0_20px_80px_rgba(0,0,0,0.55)] backdrop-blur-2xl"
           >
             <motion.div
               initial={{ opacity: 0, scale: 0.94, y: 18 }}
@@ -58,11 +58,11 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
               transition={{ duration: 0.32, ease: "easeOut" }}
               className="h-full overflow-auto p-10"
             >
-              <p className="mb-1 text-[10px] tracking-[0.35em] text-[#a0b2c2] uppercase">Island</p>
-              <DialogTitle id="portfolio-panel-title" className="mb-4 text-3xl font-medium text-[#f0f5fa]">
+              <p className="mb-1 text-[10px] tracking-[0.35em] text-[#bfd2de] uppercase">Island</p>
+              <DialogTitle id="portfolio-panel-title" className="mb-4 text-3xl font-medium text-[#f7fbff] drop-shadow-[0_2px_4px_rgba(0,0,0,0.45)]">
                 {copy.title}
               </DialogTitle>
-              <DialogDescription className="mb-6 text-base leading-relaxed text-[#d3e1ea]">
+              <DialogDescription className="mb-6 text-base leading-relaxed text-[#e4eef5]">
                 {copy.body}
               </DialogDescription>
               {copy.links && copy.links.length > 0 && (
@@ -101,15 +101,15 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
           <div
             className={[
               isSkills || isProjects || isExperience
-                ? "h-full overflow-y-auto [overflow-anchor:none] rounded-2xl border border-[#87a9bb]/45 bg-[#0e1318]/24 p-8 shadow-2xl backdrop-blur-3xl"
+                ? "h-full overflow-y-auto [overflow-anchor:none] rounded-2xl border border-[#87a9bb]/50 bg-[#0a1118]/68 p-8 shadow-[0_20px_80px_rgba(0,0,0,0.55)] backdrop-blur-2xl"
                 : "border border-[#2a3545]/90 bg-[#0e1318]/95 p-6 shadow-2xl backdrop-blur-md",
             ].join(" ")}
           >
-            <p className="mb-1 text-[10px] tracking-[0.35em] text-[#6a7f8e] uppercase">Island</p>
+            <p className="mb-1 text-[10px] tracking-[0.35em] text-[#bfd2de] uppercase">Island</p>
             <h2
               id="portfolio-panel-title"
               className={[
-                "mb-3 font-medium text-[#e8eef2]",
+                "mb-3 font-medium text-[#f7fbff] drop-shadow-[0_2px_4px_rgba(0,0,0,0.45)]",
                 isSkills || isProjects || isExperience ? "text-3xl" : "text-xl",
               ].join(" ")}
             >
@@ -117,7 +117,7 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
             </h2>
             <p
               className={[
-                "leading-relaxed text-[#9fb0bd]",
+                "leading-relaxed text-[#dce9f1]",
                 isSkills || isProjects || isExperience ? "mb-7 text-base" : "mb-5 text-sm",
               ].join(" ")}
             >
