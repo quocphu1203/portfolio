@@ -1,7 +1,8 @@
-import { ABOUT_SECTION } from "../../../mock/aboutData";
-import { EXPERIENCE_SECTION } from "../../../mock/experienceData";
-import { PROJECTS_SECTION, PROJECT_BIRD_ITEMS, type ProjectBirdItem } from "../../../mock/projectsData";
-import { SKILLS_SECTION } from "../../../mock/skillsData";
+import { getAboutSection, type InfoSection } from "../../../mock/aboutData";
+import { getExperienceSection } from "../../../mock/experienceData";
+import { getProjectBirdItems, getProjectsSection, type ProjectBirdItem } from "../../../mock/projectsData";
+import type { AppLocale } from "../../../mock/locale";
+import { getSkillsSection } from "../../../mock/skillsData";
 
 export const NAV_IDS = ["projects", "articles", "about", "credits"] as const;
 export type NavId = (typeof NAV_IDS)[number];
@@ -49,22 +50,14 @@ export function getCameraPresets(orbitY: number): Record<NavId | "menu" | "defau
   };
 }
 
-export const NAV_COPY: Record<
-  NavId,
-  { title: string; body: string; links?: { label: string; href: string }[] }
-> = {
-  projects: PROJECTS_SECTION,
-  articles: SKILLS_SECTION,
-  about: ABOUT_SECTION,
-  credits: EXPERIENCE_SECTION,
-};
+export function getNavCopy(locale: AppLocale): Record<NavId, InfoSection> {
+  return {
+    projects: getProjectsSection(locale),
+    articles: getSkillsSection(locale),
+    about: getAboutSection(locale),
+    credits: getExperienceSection(locale),
+  };
+}
 
-export const SIGN_LABELS: Record<NavId, string> = {
-  projects: "Project",
-  articles: "Kỹ năng",
-  about: "Giới thiệu",
-  credits: "Kinh nghiệm",
-};
-
-export { PROJECT_BIRD_ITEMS };
+export { getProjectBirdItems };
 export type { ProjectBirdItem };

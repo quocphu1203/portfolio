@@ -1,15 +1,16 @@
 "use client";
 
 import React from "react";
+import { useTranslations } from "next-intl";
 
 import {
   useTimeOfDay,
   TIME_IDS,
-  TIME_LABELS,
   TIME_DOT_COLORS,
 } from "./TimeOfDayContext";
 
 export function TimeOfDayToggle({ visible }: { visible: boolean }) {
+  const t = useTranslations("time");
   const { timeOfDay, setTimeOfDay, mode, setRealtimeMode } = useTimeOfDay();
 
   return (
@@ -39,8 +40,8 @@ export function TimeOfDayToggle({ visible }: { visible: boolean }) {
               transform: timeOfDay === id ? "scale(1.5)" : "scale(1)",
             }}
           />
-          <span className="hidden sm:inline">{TIME_LABELS[id]}</span>
-          <span className="sm:hidden">{TIME_LABELS[id].slice(0, 3)}</span>
+          <span className="hidden sm:inline">{t(id)}</span>
+          <span className="sm:hidden">{t(id).slice(0, 3)}</span>
         </button>
       ))}
 
@@ -49,7 +50,7 @@ export function TimeOfDayToggle({ visible }: { visible: boolean }) {
       <button
         type="button"
         onClick={() => setRealtimeMode(mode !== "realtime")}
-        title={mode === "realtime" ? "Đang theo giờ thực" : "Bật giờ thực"}
+        title={mode === "realtime" ? t("realtimeOn") : t("realtimeOff")}
         className={[
           "flex shrink-0 items-center justify-center rounded-full px-1.5 py-1.5 text-[8px] font-medium uppercase tracking-[0.08em] transition-all duration-300 sm:px-2 sm:text-[9px] sm:tracking-[0.12em]",
           mode === "realtime"
@@ -57,7 +58,7 @@ export function TimeOfDayToggle({ visible }: { visible: boolean }) {
             : "text-white/35 hover:text-white/60",
         ].join(" ")}
       >
-        Real
+        {t("realButton")}
       </button>
     </div>
   );

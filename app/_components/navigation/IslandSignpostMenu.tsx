@@ -2,8 +2,9 @@
 
 import { Text } from "@react-three/drei";
 import React from "react";
+import { useTranslations } from "next-intl";
 
-import { SIGN_LABELS, SIGNPOST_ANCHOR, SIGNPOST_SCALE, type NavId } from "./portfolioNavData";
+import { SIGNPOST_ANCHOR, SIGNPOST_SCALE, type NavId } from "./portfolioNavData";
 import { usePortfolioNav } from "./PortfolioNavContext";
 
 type SignDef = {
@@ -25,6 +26,7 @@ const SIGNS: SignDef[] = [
 ];
 
 function SignBoard({ def, onPick }: { def: SignDef; onPick: (id: NavId) => void }) {
+  const t = useTranslations("sign");
   const { rotY, arm, w, h, y, color, emissive, id } = def;
   const cx = Math.cos(rotY) * arm;
   const cz = Math.sin(rotY) * arm;
@@ -100,7 +102,7 @@ function SignBoard({ def, onPick }: { def: SignDef; onPick: (id: NavId) => void 
           outlineWidth={0.015}
           outlineColor="#1a1510"
         >
-          {SIGN_LABELS[id]}
+          {t(id)}
         </Text>
       </group>
     </group>

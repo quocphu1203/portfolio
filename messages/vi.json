@@ -1,0 +1,42 @@
+{
+  "language": {
+    "switcherLabel": "Ngôn ngữ",
+    "en": "Tiếng Anh",
+    "ja": "Tiếng Nhật",
+    "vi": "Tiếng Việt"
+  },
+  "intro": {
+    "brand": "Island portfolio",
+    "loading": "Đang dựng đảo... {pct}%",
+    "start": "Bắt đầu"
+  },
+  "chrome": {
+    "hintControls": "Kéo để xoay · Cuộn để zoom"
+  },
+  "time": {
+    "dawn": "Bình minh",
+    "morning": "Sáng",
+    "noon": "Trưa",
+    "afternoon": "Chiều",
+    "dusk": "Hoàng hôn",
+    "evening": "Tối",
+    "realtimeOn": "Đang theo giờ thực",
+    "realtimeOff": "Bật giờ thực",
+    "realButton": "Thực"
+  },
+  "sign": {
+    "projects": "Dự án",
+    "articles": "Kỹ năng",
+    "about": "Giới thiệu",
+    "credits": "Kinh nghiệm"
+  },
+  "panel": {
+    "island": "Island",
+    "close": "Đóng",
+    "projectsFallbackTitle": "Dự án",
+    "projectFallbackDescription": "Chọn một con chim để xem thông tin chi tiết dự án.",
+    "lockedMilestone": "Chưa mở khóa, chờ mèo tới cột cờ này.",
+    "github": "GitHub",
+    "noGithub": "Chưa có GitHub"
+  }
+}

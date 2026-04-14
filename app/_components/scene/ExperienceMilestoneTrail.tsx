@@ -4,11 +4,13 @@ import React, { useEffect, useMemo, useRef } from "react";
 import { Html } from "@react-three/drei";
 import { useGLTF } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
+import { useLocale } from "next-intl";
 import { RigidBody, type RapierRigidBody, useRapier } from "@react-three/rapier";
 import * as THREE from "three";
 import { clone } from "three/examples/jsm/utils/SkeletonUtils.js";
 
-import { EXPERIENCE_MILESTONES } from "../../../mock/experienceData";
+import { getExperienceMilestones } from "../../../mock/experienceData";
+import type { AppLocale } from "../../../mock/locale";
 import { usePortfolioNav } from "../navigation/PortfolioNavContext";
 
 const JOURNEY_DURATION_SECONDS = 11;
@@ -209,6 +211,8 @@ function flagProgressMarks(count: number) {
 }
 
 export function ExperienceMilestoneTrail() {
+  const locale = useLocale() as AppLocale;
+  const experienceMilestones = getExperienceMilestones(locale);
   const {
     activeSection,
     experienceJourneyKey,
@@ -225,7 +229,7 @@ export function ExperienceMilestoneTrail() {
   const catModel = useMemo(() => clone(catScene), [catScene]);
   const { scene: torchScene } = useGLTF("/torch.glb") as { scene: THREE.Object3D };
   const torchModels = useMemo(() => {
-    return EXPERIENCE_MILESTONES.map(() => {
+    return experienceMilestones.map(() => {
       const c = torchScene.clone(true);
       c.traverse((child) => {
         const mesh = child as THREE.Mesh;
@@ -235,7 +239,7 @@ export function ExperienceMilestoneTrail() {
       });
       return c;
     });
-  }, [torchScene]);
+  }, [torchScene, experienceMilestones]);
   const catBodyRef = useRef<RapierRigidBody | null>(null);
   const catPosRef = useRef(new THREE.Vector3());
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
@@ -289,8 +293,8 @@ export function ExperienceMilestoneTrail() {
   }, [worldScene]);
 
   const progressMarks = useMemo(
-    () => flagProgressMarks(EXPERIENCE_MILESTONES.length),
-    []
+    () => flagProgressMarks(experienceMilestones.length),
+    [experienceMilestones]
   );
   const flagPositions = useMemo(() => {
     if (pathPoints.length < 2) return [] as THREE.Vector3[];
@@ -487,7 +491,7 @@ export function ExperienceMilestoneTrail() {
     }
 
     let unlocked = 0;
-    for (let i = 0; i < EXPERIENCE_MILESTONES.length; i += 1) {
+    for (let i = 0; i < experienceMilestones.length; i += 1) {
       const threshold = progressMarks[i] ?? 1;
       if (progress >= threshold) unlocked = i + 1;
     }
@@ -525,7 +529,7 @@ export function ExperienceMilestoneTrail() {
         const tangent = tangentAt(pathPoints, progressMarks[idx] ?? 0);
         const flagYaw = Math.atan2(tangent.x, tangent.z);
         return (
-          <group key={EXPERIENCE_MILESTONES[idx].id} position={flagPos.toArray()} rotation={[0, flagYaw, 0]}>
+          <group key={experienceMilestones[idx].id} position={flagPos.toArray()} rotation={[0, flagYaw, 0]}>
             <primitive object={torchModels[idx]} scale={0.35} position={[0, 0, 0]} />
             <pointLight
               position={[0, 5, 0]}
@@ -543,7 +547,7 @@ export function ExperienceMilestoneTrail() {
                     : "border-[#4e6673]/70 bg-[#11212b]/70 text-[#9fb8c4]",
                 ].join(" ")}
               >
-                {EXPERIENCE_MILESTONES[idx].period}
+                {experienceMilestones[idx].period}
               </span>
             </Html>
           </group>

@@ -3,9 +3,11 @@
 import React, { useMemo, useRef } from "react";
 import { Html, useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
+import { useLocale } from "next-intl";
 import * as THREE from "three";
 
-import { PROJECT_BIRD_ITEMS } from "../../../mock/projectsData";
+import type { AppLocale } from "../../../mock/locale";
+import { getProjectBirdItems } from "../../../mock/projectsData";
 import { usePortfolioNav } from "../navigation/PortfolioNavContext";
 
 type BirdConfig = {
@@ -34,8 +36,10 @@ function cloneBird(scene: THREE.Object3D) {
 }
 
 export function ProjectBirdFlock() {
+  const locale = useLocale() as AppLocale;
   const { scene } = useGLTF("/wingull.glb") as { scene: THREE.Object3D };
   const { projectBirdsVisible, selectedProjectId, focusProjectBird } = usePortfolioNav();
+  const projectBirdItems = getProjectBirdItems(locale);
   const timeRef = useRef(0);
   const birdRefs = useRef<(THREE.Group | null)[]>([]);
   const frozenAngleRef = useRef<Record<string, number>>({});
@@ -45,18 +49,18 @@ export function ProjectBirdFlock() {
 
   const configs = useMemo<BirdConfig[]>(
     () =>
-      PROJECT_BIRD_ITEMS.map((_, i) => ({
+      projectBirdItems.map((_, i) => ({
         radius: 14.5 + (i % 2) * 1.6,
         baseHeight: 12.6 + (i % 3) * 0.75,
-        angleOffset: (i - (PROJECT_BIRD_ITEMS.length - 1) / 2) * 0.28,
+        angleOffset: (i - (projectBirdItems.length - 1) / 2) * 0.28,
         liftOffset: i * 0.7,
       })),
-    []
+    [projectBirdItems]
   );
 
   const birds = useMemo(
-    () => PROJECT_BIRD_ITEMS.map(() => cloneBird(scene)),
-    [scene]
+    () => projectBirdItems.map(() => cloneBird(scene)),
+    [scene, projectBirdItems]
   );
 
   useFrame((_, delta) => {
@@ -67,7 +71,7 @@ export function ProjectBirdFlock() {
     birdRefs.current.forEach((bird, i) => {
       if (!bird) return;
       const cfg = configs[i];
-      const project = PROJECT_BIRD_ITEMS[i];
+      const project = projectBirdItems[i];
       const flockAngle = t * flockAngularSpeed + 0.65;
       const baseAngle = flockAngle + cfg.angleOffset;
       const isSelected = selectedProjectId === project.id;
@@ -110,7 +114,7 @@ export function ProjectBirdFlock() {
   return (
     <group name="project-bird-flock">
       {birds.map((bird, i) => {
-        const project = PROJECT_BIRD_ITEMS[i];
+        const project = projectBirdItems[i];
         const cfg = configs[i];
         return (
           <group

@@ -1,0 +1,42 @@
+{
+  "language": {
+    "switcherLabel": "Language",
+    "en": "English",
+    "ja": "Japanese",
+    "vi": "Vietnamese"
+  },
+  "intro": {
+    "brand": "Island portfolio",
+    "loading": "Building island... {pct}%",
+    "start": "Start"
+  },
+  "chrome": {
+    "hintControls": "Drag to rotate · Scroll to zoom"
+  },
+  "time": {
+    "dawn": "Dawn",
+    "morning": "Morning",
+    "noon": "Noon",
+    "afternoon": "Afternoon",
+    "dusk": "Dusk",
+    "evening": "Evening",
+    "realtimeOn": "Following real-time clock",
+    "realtimeOff": "Enable real-time clock",
+    "realButton": "Real"
+  },
+  "sign": {
+    "projects": "Projects",
+    "articles": "Skills",
+    "about": "About",
+    "credits": "Experience"
+  },
+  "panel": {
+    "island": "Island",
+    "close": "Close",
+    "projectsFallbackTitle": "Projects",
+    "projectFallbackDescription": "Pick a bird to see project details.",
+    "lockedMilestone": "Locked for now, wait until the cat reaches this milestone.",
+    "github": "GitHub",
+    "noGithub": "GitHub not available yet"
+  }
+}

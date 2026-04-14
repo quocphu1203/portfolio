@@ -1,0 +1,42 @@
+{
+  "language": {
+    "switcherLabel": "言語",
+    "en": "英語",
+    "ja": "日本語",
+    "vi": "ベトナム語"
+  },
+  "intro": {
+    "brand": "アイランドポートフォリオ",
+    "loading": "島を構築中... {pct}%",
+    "start": "開始"
+  },
+  "chrome": {
+    "hintControls": "ドラッグで回転・スクロールでズーム"
+  },
+  "time": {
+    "dawn": "夜明け",
+    "morning": "朝",
+    "noon": "正午",
+    "afternoon": "午後",
+    "dusk": "夕暮れ",
+    "evening": "夜",
+    "realtimeOn": "現在時刻に同期中",
+    "realtimeOff": "現在時刻同期を有効化",
+    "realButton": "実時間"
+  },
+  "sign": {
+    "projects": "プロジェクト",
+    "articles": "スキル",
+    "about": "紹介",
+    "credits": "経験"
+  },
+  "panel": {
+    "island": "アイランド",
+    "close": "閉じる",
+    "projectsFallbackTitle": "プロジェクト",
+    "projectFallbackDescription": "鳥を選択するとプロジェクト詳細を表示します。",
+    "lockedMilestone": "まだロック中です。猫がこの地点に到達するまで待ってください。",
+    "github": "GitHub",
+    "noGithub": "GitHubはまだありません"
+  }
+}

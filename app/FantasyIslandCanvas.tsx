@@ -19,6 +19,7 @@ import { TimeOfDayLighting } from "./_components/time/TimeOfDayLighting";
 import { TimeOfDayToggle } from "./_components/time/TimeOfDayToggle";
 import { ImmersiveChrome } from "./_components/ui/ImmersiveChrome";
 import { IslandIntroOverlay } from "./_components/ui/IslandIntroOverlay";
+import { LanguageSwitcher } from "./_components/ui/LanguageSwitcher";
 import {
   IslandLoadProgress,
   type IslandLoadSnapshot,
@@ -120,6 +121,7 @@ function FantasyIslandCanvasInner() {
       <ImmersiveChrome active={started} />
       <PortfolioInfoPanel visible={started} />
       <TimeOfDayToggle visible={started} />
+      <LanguageSwitcher />
     </div>
   );
 }

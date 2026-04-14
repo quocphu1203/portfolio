@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { useTranslations } from "next-intl";
 
 type IslandIntroOverlayProps = {
   progress: number;
@@ -13,6 +14,7 @@ export function IslandIntroOverlay({
   canStart,
   onStart,
 }: IslandIntroOverlayProps) {
+  const t = useTranslations("intro");
   const pct = Math.min(100, Math.max(0, Math.round(progress)));
 
   return (
@@ -20,15 +22,14 @@ export function IslandIntroOverlay({
       className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-8 bg-[#0a0c10]/95 px-4 backdrop-blur-[14px] sm:gap-10 sm:px-6 md:gap-12"
     >
       <p className="text-[10px] font-medium tracking-[0.5em] text-[#6a7f8e] uppercase">
-        Island portfolio
+        {t("brand")}
       </p>
 
       <h1
         className="max-w-4xl text-center font-sans text-[clamp(1.75rem,6vw,4rem)] font-medium leading-tight tracking-tight text-[#f0f4f8]"
         style={{ fontFeatureSettings: '"tnum"' }}
       >
-        Đang dựng đảo… {pct}
-        <span className="text-[#6a7f8e]">%</span>
+        {t("loading", { pct })}
       </h1>
 
       <div className="w-full max-w-[min(22rem,92vw)] sm:max-w-[min(22rem,90vw)]">
@@ -57,7 +58,7 @@ export function IslandIntroOverlay({
             : "cursor-not-allowed border-[#2f3a45] text-[#3d4a58]",
         ].join(" ")}
       >
-        Start
+        {t("start")}
       </button>
     </div>
   );
