@@ -16,7 +16,7 @@ export function FantasyIslandFitted({
 }: {
   controlsRef: React.RefObject<OrbitControlsInstance | null>;
 }) {
-  const { scene } = useGLTF("/island.glb") as { scene: THREE.Object3D };
+  const { scene } = useGLTF("/island2.glb") as { scene: THREE.Object3D };
   const { camera } = useThree();
   const groupRef = useRef<THREE.Group | null>(null);
   const layoutAppliedRef = useRef(false);
@@ -70,6 +70,23 @@ export function FantasyIslandFitted({
           if (typeof m?.envMapIntensity === "number") m.envMapIntensity = 0.25;
         }
       });
+
+      // Mark selected objects as collision meshes for runtime raycast checks.
+      const colliderRoots = ["Object_231", "Object_534", "doc", "Object_546"]
+        .map((name) => scene.getObjectByName(name))
+        .filter(Boolean);
+      for (const root of colliderRoots) {
+        root?.traverse((child) => {
+          const mesh = child as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          mesh.userData.isIslandCollider = true;
+          const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          for (const mat of materials) {
+            const m = mat as THREE.Material & { side?: THREE.Side };
+            if (typeof m.side === "number") m.side = THREE.DoubleSide;
+          }
+        });
+      }
 
       const cam = camera as THREE.PerspectiveCamera;
       const orbitAimY = targetY * 0.7;
@@ -126,4 +143,4 @@ export function FantasyIslandFitted({
   );
 }
 
-useGLTF.preload("/island.glb");
+useGLTF.preload("/island2.glb");

@@ -10,6 +10,7 @@ import { IslandSignpostMenu } from "./_components/navigation/IslandSignpostMenu"
 import { PortfolioNavProvider } from "./_components/navigation/PortfolioNavContext";
 import { FantasyIslandFitted, type OrbitControlsInstance } from "./_components/scene/FantasyIslandFitted";
 import { FloatingBoats } from "./_components/scene/FloatingBoat";
+import { ExperienceMilestoneTrail } from "./_components/scene/ExperienceMilestoneTrail";
 import { ProjectBirdFlock } from "./_components/scene/ProjectBirdFlock";
 import { SkyBackdrop } from "./_components/scene/SkyBackdrop";
 import { TimeOfDayProvider } from "./_components/time/TimeOfDayContext";
@@ -85,6 +86,7 @@ function FantasyIslandCanvasInner() {
           <FantasyIslandFitted controlsRef={controlsRef} />
           <FloatingBoats />
           <ProjectBirdFlock />
+          <ExperienceMilestoneTrail />
           <IslandSignpostMenu visible={started} />
         </Suspense>
       </Canvas>

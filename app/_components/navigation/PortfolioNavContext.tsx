@@ -32,6 +32,11 @@ type PortfolioNavContextValue = {
   selectedProjectId: string | null;
   setSelectedProjectId: (id: string | null) => void;
   focusProjectBird: (id: string, position: [number, number, number]) => void;
+  experienceJourneyKey: number;
+  experienceUnlockedCount: number;
+  setExperienceUnlockedCount: (count: number) => void;
+  experienceCatPose: { position: [number, number, number]; heading: number } | null;
+  setExperienceCatPose: (pose: { position: [number, number, number]; heading: number } | null) => void;
 };
 
 const PortfolioNavContext = createContext<PortfolioNavContextValue | null>(null);
@@ -52,6 +57,12 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
   const [boatThoughtVisible, setBoatThoughtVisible] = useState(false);
   const [projectBirdsVisible, setProjectBirdsVisible] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [experienceJourneyKey, setExperienceJourneyKey] = useState(0);
+  const [experienceUnlockedCount, setExperienceUnlockedCount] = useState(0);
+  const [experienceCatPose, setExperienceCatPose] = useState<{
+    position: [number, number, number];
+    heading: number;
+  } | null>(null);
 
   const requestNav = useCallback(
     (id: NavId) => {
@@ -110,6 +121,11 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
         return;
       }
       const p = getCameraPresets(orbitTargetY)[id];
+      if (id === "credits") {
+        setExperienceJourneyKey((v) => v + 1);
+        setExperienceUnlockedCount(0);
+        setExperienceCatPose(null);
+      }
       setPendingNav({
         mode: "section",
         sectionId: id,
@@ -137,6 +153,8 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
     setBoatThoughtVisible(false);
     setProjectBirdsVisible(false);
     setSelectedProjectId(null);
+    setExperienceUnlockedCount(0);
+    setExperienceCatPose(null);
   }, [orbitTargetY]);
 
   const flyToDefault = useCallback(() => {
@@ -151,6 +169,8 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
     setBoatThoughtVisible(false);
     setProjectBirdsVisible(false);
     setSelectedProjectId(null);
+    setExperienceUnlockedCount(0);
+    setExperienceCatPose(null);
   }, [orbitTargetY]);
 
   const clearPendingNav = useCallback(() => setPendingNav(null), []);
@@ -207,6 +227,11 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
       selectedProjectId,
       setSelectedProjectId,
       focusProjectBird,
+      experienceJourneyKey,
+      experienceUnlockedCount,
+      setExperienceUnlockedCount,
+      experienceCatPose,
+      setExperienceCatPose,
     }),
     [
       orbitTargetY,
@@ -223,6 +248,9 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
       projectBirdsVisible,
       selectedProjectId,
       focusProjectBird,
+      experienceJourneyKey,
+      experienceUnlockedCount,
+      experienceCatPose,
     ]
   );
 

@@ -20,7 +20,7 @@ export function CameraNavController({
   enabled: boolean;
 }) {
   const { camera } = useThree();
-  const { pendingNav, clearPendingNav, setActiveSection } = usePortfolioNav();
+  const { pendingNav, clearPendingNav, setActiveSection, activeSection, experienceCatPose } = usePortfolioNav();
 
   const anim = useRef<{
     fromP: THREE.Vector3;
@@ -51,8 +51,24 @@ export function CameraNavController({
 
   useFrame((_, dt) => {
     if (!enabled) return;
-    const a = anim.current;
     const ctrl = controlsRef.current;
+    if (activeSection === "credits" && experienceCatPose && ctrl) {
+      const [cx, cy, cz] = experienceCatPose.position;
+      const radial = new THREE.Vector3(cx, 0, cz);
+      if (radial.lengthSq() < 0.0001) radial.set(1, 0, 0);
+      radial.normalize();
+      // Keep camera outside island and look inward to cat.
+      const desiredCam = new THREE.Vector3(cx, cy + 3.6, cz).add(radial.multiplyScalar(10.5));
+      const desiredTarget = new THREE.Vector3(cx, cy + 0.55, cz);
+      const followK = 1 - Math.exp(-5.5 * dt);
+      camera.position.lerp(desiredCam, followK);
+      ctrl.target.lerp(desiredTarget, followK);
+      ctrl.enabled = false;
+      ctrl.update();
+      return;
+    }
+
+    const a = anim.current;
     if (!a || !ctrl) return;
 
     a.t += dt * 0.72;

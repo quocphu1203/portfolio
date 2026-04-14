@@ -4,12 +4,19 @@ import React, { useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 
+import { EXPERIENCE_MILESTONES } from "../../../mock/experienceData";
 import { PROJECT_BIRD_ITEMS } from "../../../mock/projectsData";
 import { NAV_COPY, type NavId } from "../navigation/portfolioNavData";
 import { usePortfolioNav } from "../navigation/PortfolioNavContext";
 
 export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
-  const { activeSection, flyToDefault, selectedProjectId, setSelectedProjectId } = usePortfolioNav();
+  const {
+    activeSection,
+    flyToDefault,
+    selectedProjectId,
+    setSelectedProjectId,
+    experienceUnlockedCount,
+  } = usePortfolioNav();
 
   useEffect(() => {
     if (!visible || !activeSection) return;
@@ -31,6 +38,7 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
   const isAbout = activeSection === "about";
   const isSkills = activeSection === "articles";
   const isProjects = activeSection === "projects";
+  const isExperience = activeSection === "credits";
   const selectedProject = PROJECT_BIRD_ITEMS.find((p) => p.id === selectedProjectId) ?? null;
 
   if (isProjects && !selectedProject) return null;
@@ -78,22 +86,22 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
         <motion.div
           key="section-panel-side"
           className={[
-            "fixed z-250 cursor-auto",
-            isSkills || isProjects
-              ? "right-6 top-1/2 h-[min(74vh,44rem)] w-[min(46vw,40rem)] -translate-y-1/2"
+            "fixed z-520 cursor-auto",
+            isSkills || isProjects || isExperience
+              ? "right-6 top-1/2 h-[min(78vh,46rem)] w-[min(46vw,40rem)] -translate-y-1/2"
               : "right-6 top-1/2 w-[min(22rem,calc(100vw-3rem))] -translate-y-1/2",
           ].join(" ")}
           role="dialog"
           aria-labelledby="portfolio-panel-title"
-          initial={{ opacity: 0, x: isSkills || isProjects ? 44 : 28 }}
+          initial={{ opacity: 0, x: isSkills || isProjects || isExperience ? 44 : 28 }}
           animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: isSkills || isProjects ? 32 : 24 }}
+          exit={{ opacity: 0, x: isSkills || isProjects || isExperience ? 32 : 24 }}
           transition={{ duration: 0.24, ease: "easeOut" }}
         >
           <div
             className={[
-              isSkills || isProjects
-                ? "h-full rounded-2xl border border-[#87a9bb]/45 bg-[#0e1318]/24 p-8 shadow-2xl backdrop-blur-3xl"
+              isSkills || isProjects || isExperience
+                ? "h-full overflow-y-auto [overflow-anchor:none] rounded-2xl border border-[#87a9bb]/45 bg-[#0e1318]/24 p-8 shadow-2xl backdrop-blur-3xl"
                 : "border border-[#2a3545]/90 bg-[#0e1318]/95 p-6 shadow-2xl backdrop-blur-md",
             ].join(" ")}
           >
@@ -102,7 +110,7 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
               id="portfolio-panel-title"
               className={[
                 "mb-3 font-medium text-[#e8eef2]",
-                isSkills || isProjects ? "text-3xl" : "text-xl",
+                isSkills || isProjects || isExperience ? "text-3xl" : "text-xl",
               ].join(" ")}
             >
               {isProjects ? selectedProject?.name ?? "Projects" : copy.title}
@@ -110,14 +118,50 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
             <p
               className={[
                 "leading-relaxed text-[#9fb0bd]",
-                isSkills || isProjects ? "mb-7 text-base" : "mb-5 text-sm",
+                isSkills || isProjects || isExperience ? "mb-7 text-base" : "mb-5 text-sm",
               ].join(" ")}
             >
               {isProjects
                 ? selectedProject?.description ?? "Chọn một con chim để xem thông tin chi tiết dự án."
                 : copy.body}
             </p>
-            {!isProjects && copy.links && copy.links.length > 0 && (
+            {isExperience && (
+              <ol className="mb-6 space-y-4">
+                {EXPERIENCE_MILESTONES.map((milestone, index) => (
+                  <li key={milestone.id} className="relative pl-7">
+                    <span className="absolute top-2 left-0 h-3 w-3 rounded-full border border-[#9ad0e4]/80 bg-[#2b7b96]" />
+                    {index < EXPERIENCE_MILESTONES.length - 1 && (
+                      <span className="absolute top-5 left-[5px] h-[calc(100%+0.75rem)] w-[2px] bg-linear-to-b from-[#7fb3c6]/80 to-[#2e4f60]/20" />
+                    )}
+                    <article className="rounded-xl border border-[#5f7d8b]/65 bg-[#11212a]/45 p-4">
+                      <p className="mb-1 text-xs tracking-[0.14em] text-[#9cc4d4] uppercase">
+                        {milestone.period}
+                      </p>
+                      {index < experienceUnlockedCount ? (
+                        <>
+                          <h3 className="text-lg font-medium text-[#e7f4fb]">{milestone.title}</h3>
+                          <p className="mb-2 text-sm text-[#b6d3df]">{milestone.company}</p>
+                          <p className="mb-3 text-sm leading-relaxed text-[#c4dbe6]">{milestone.summary}</p>
+                          <ul className="flex flex-wrap gap-2">
+                            {milestone.skills.map((skill) => (
+                              <li
+                                key={skill}
+                                className="rounded-full border border-[#5f8495]/70 bg-[#17313d]/55 px-2.5 py-1 text-xs text-[#d1e7f2]"
+                              >
+                                {skill}
+                              </li>
+                            ))}
+                          </ul>
+                        </>
+                      ) : (
+                        <p className="text-sm text-[#8fa6b1]">Chưa mở khóa, chờ mèo tới cột cờ này.</p>
+                      )}
+                    </article>
+                  </li>
+                ))}
+              </ol>
+            )}
+            {!isProjects && !isExperience && copy.links && copy.links.length > 0 && (
               <ul className={["flex flex-wrap gap-2", isSkills || isProjects ? "mb-8" : "mb-5"].join(" ")}>
                 {copy.links.map((link) => (
                   <li key={link.href + link.label}>

@@ -1,4 +1,5 @@
 import { ABOUT_SECTION } from "../../../mock/aboutData";
+import { EXPERIENCE_SECTION } from "../../../mock/experienceData";
 import { PROJECTS_SECTION, PROJECT_BIRD_ITEMS, type ProjectBirdItem } from "../../../mock/projectsData";
 import { SKILLS_SECTION } from "../../../mock/skillsData";
 
@@ -55,11 +56,7 @@ export const NAV_COPY: Record<
   projects: PROJECTS_SECTION,
   articles: SKILLS_SECTION,
   about: ABOUT_SECTION,
-  credits: {
-    title: "Kinh nghiệm",
-    body: "Cảm ơn Three.js, React Three Fiber, drei, và tác giả asset đảo fantasy. Thêm license hoặc attribution cụ thể tại đây.",
-    links: [{ label: "License", href: "#" }],
-  },
+  credits: EXPERIENCE_SECTION,
 };
 
 export const SIGN_LABELS: Record<NavId, string> = {
