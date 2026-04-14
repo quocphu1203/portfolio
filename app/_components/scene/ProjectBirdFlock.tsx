@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { Html, useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { useLocale } from "next-intl";
@@ -38,12 +38,13 @@ function cloneBird(scene: THREE.Object3D) {
 export function ProjectBirdFlock() {
   const locale = useLocale() as AppLocale;
   const { scene } = useGLTF("/wingull.glb") as { scene: THREE.Object3D };
-  const { projectBirdsVisible, selectedProjectId, focusProjectBird } = usePortfolioNav();
+  const { activeSection, projectBirdsVisible, selectedProjectId, focusProjectBird } = usePortfolioNav();
   const projectBirdItems = getProjectBirdItems(locale);
   const timeRef = useRef(0);
   const birdRefs = useRef<(THREE.Group | null)[]>([]);
   const frozenAngleRef = useRef<Record<string, number>>({});
   const prevPosRef = useRef<Record<string, THREE.Vector3>>({});
+  const seagullAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const flockAngularSpeed = 0.19;
 
@@ -61,6 +62,59 @@ export function ProjectBirdFlock() {
   const birds = useMemo(
     () => projectBirdItems.map(() => cloneBird(scene)),
     [scene, projectBirdItems]
+  );
+
+  useEffect(() => {
+    const audio = new Audio("/seagull.mp3");
+    audio.preload = "auto";
+    audio.volume = 0.45;
+    seagullAudioRef.current = audio;
+
+    return () => {
+      audio.pause();
+      audio.currentTime = 0;
+      seagullAudioRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const audio = seagullAudioRef.current;
+    if (!audio) return;
+    if (activeSection === "projects") return;
+    audio.pause();
+    audio.currentTime = 0;
+  }, [activeSection]);
+
+  const triggerProjectSound = useCallback(() => {
+    const audio = seagullAudioRef.current;
+    if (!audio) return;
+    audio.pause();
+    audio.currentTime = 0;
+    void audio.play().catch(() => {
+      // Ignore blocked play promise on strict autoplay policies.
+    });
+  }, []);
+
+  const focusProjectByIndex = useCallback(
+    (index: number) => {
+      const project = projectBirdItems[index];
+      if (!project) return;
+      const cfg = configs[index];
+      const wp = new THREE.Vector3();
+      const node = birdRefs.current[index];
+      if (node) {
+        node.getWorldPosition(wp);
+        focusProjectBird(project.id, [wp.x, wp.y, wp.z]);
+      } else {
+        focusProjectBird(project.id, [
+          Math.cos(0.65 + cfg.angleOffset) * cfg.radius,
+          cfg.baseHeight,
+          Math.sin(0.65 + cfg.angleOffset) * cfg.radius,
+        ]);
+      }
+      triggerProjectSound();
+    },
+    [projectBirdItems, configs, focusProjectBird, triggerProjectSound]
   );
 
   useFrame((_, delta) => {
@@ -92,7 +146,11 @@ export function ProjectBirdFlock() {
       const k = easeOutCubic(spawn);
 
       bird.position.set(x, y, z);
-      const prev = prevPosRef.current[project.id] ?? new THREE.Vector3(x, y, z);
+      let prev = prevPosRef.current[project.id];
+      if (!prev) {
+        prev = new THREE.Vector3(x, y, z);
+        prevPosRef.current[project.id] = prev;
+      }
       const dx = x - prev.x;
       const dz = z - prev.z;
       const travelYaw = Math.sqrt(dx * dx + dz * dz) > 0.0001 ? Math.atan2(dx, dz) : -angle + Math.PI / 2;
@@ -103,7 +161,7 @@ export function ProjectBirdFlock() {
         travelYaw,
         bankRoll
       );
-      prevPosRef.current[project.id] = new THREE.Vector3(x, y, z);
+      prev.set(x, y, z);
       bird.scale.setScalar(BIRD_SCALE * Math.max(0.0001, k));
       bird.visible = spawn > 0.01;
     });
@@ -130,36 +188,14 @@ export function ProjectBirdFlock() {
             scale={0.0001}
             onClick={(e) => {
               e.stopPropagation();
-              const wp = new THREE.Vector3();
-              const node = birdRefs.current[i];
-              if (node) {
-                node.getWorldPosition(wp);
-                focusProjectBird(project.id, [wp.x, wp.y, wp.z]);
-                return;
-              }
-              focusProjectBird(project.id, [
-                Math.cos(0.65 + cfg.angleOffset) * cfg.radius,
-                cfg.baseHeight,
-                Math.sin(0.65 + cfg.angleOffset) * cfg.radius,
-              ]);
+              focusProjectByIndex(i);
             }}
           >
             <primitive object={bird} dispose={null} />
             <mesh
               onClick={(e) => {
                 e.stopPropagation();
-                const wp = new THREE.Vector3();
-                const node = birdRefs.current[i];
-                if (node) {
-                  node.getWorldPosition(wp);
-                  focusProjectBird(project.id, [wp.x, wp.y, wp.z]);
-                  return;
-                }
-                focusProjectBird(project.id, [
-                  Math.cos(0.65 + cfg.angleOffset) * cfg.radius,
-                  cfg.baseHeight,
-                  Math.sin(0.65 + cfg.angleOffset) * cfg.radius,
-                ]);
+                focusProjectByIndex(i);
               }}
             >
               <sphereGeometry args={[1.35, 16, 16]} />
@@ -170,12 +206,7 @@ export function ProjectBirdFlock() {
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  const wp = new THREE.Vector3();
-                  const node = birdRefs.current[i];
-                  if (node) {
-                    node.getWorldPosition(wp);
-                    focusProjectBird(project.id, [wp.x, wp.y, wp.z]);
-                  }
+                  focusProjectByIndex(i);
                 }}
                 className="cursor-pointer rounded-full border border-[#88acc0]/55 bg-[#0c151d]/72 px-3 py-1 text-[11px] font-semibold tracking-[0.08em] text-[#def0f8] backdrop-blur-sm whitespace-nowrap"
               >

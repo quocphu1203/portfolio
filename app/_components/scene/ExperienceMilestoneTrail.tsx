@@ -13,13 +13,21 @@ import { getExperienceMilestones } from "../../../mock/experienceData";
 import type { AppLocale } from "../../../mock/locale";
 import { usePortfolioNav } from "../navigation/PortfolioNavContext";
 
-const JOURNEY_DURATION_SECONDS = 11;
+const JOURNEY_DURATION_SECONDS = 8.2;
 const CAT_SCALE = 1 / 80;
 const CAT_WALL_CLEARANCE = 0;
 const CAT_COLLISION_RADIUS = 0.1;
-const DOC_SURFACE_OFFSET_Y = 0.03;
+const DOC_SURFACE_OFFSET_Y = -0.005;
 const FLAG_OUTER_OFFSET = 0.55;
 const FLAG_SURFACE_OFFSET_Y = 0.05;
+const FIRST_FLAG_PROGRESS = 0.14;
+const LAST_FLAG_PROGRESS = 0.92;
+const FINAL_APPROACH_WINDOW = 0.12;
+const CAT_STOP_SIDE_OFFSET = 0.55;
+const FINAL_STOP_DISTANCE = 0.18;
+const CAT_POSE_UPDATE_INTERVAL_MS = 50;
+const CAT_MOVE_SMOOTHNESS = 14;
+const CAT_ROTATE_SMOOTHNESS = 9;
 const FALLBACK_PATH: [number, number, number][] = [
   [3.2, 2.1, 2.2],
   [2.4, 2.9, 1.3],
@@ -201,13 +209,51 @@ function offsetOutward(point: THREE.Vector3, tangent: THREE.Vector3, amount: num
 }
 
 function flagProgressMarks(count: number) {
-  if (count <= 1) return [0.5];
-  const start = 0.12;
-  const end = 0.92;
+  if (count <= 1) return [FIRST_FLAG_PROGRESS];
+  const start = FIRST_FLAG_PROGRESS;
+  const end = LAST_FLAG_PROGRESS;
   return Array.from({ length: count }, (_, i) => {
     const t = i / (count - 1);
     return THREE.MathUtils.lerp(start, end, t);
   });
+}
+
+function easeOutCubic(t: number) {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+function catStopNearFlag(flagPos: THREE.Vector3, tangent: THREE.Vector3) {
+  const side = new THREE.Vector3(-tangent.z, 0, tangent.x);
+  if (side.lengthSq() < 0.0001) return flagPos.clone();
+  side.normalize();
+  return flagPos.clone().addScaledVector(side, CAT_STOP_SIDE_OFFSET);
+}
+
+function snapPointToDocSurface(pos: THREE.Vector3, meshes: THREE.Mesh[], offsetY: number) {
+  if (meshes.length === 0) return null;
+  const ray = new THREE.Raycaster();
+  const down = new THREE.Vector3(0, -1, 0);
+  const up = new THREE.Vector3(0, 1, 0);
+
+  ray.set(new THREE.Vector3(pos.x, pos.y + 5, pos.z), down);
+  ray.far = 12;
+  const hitsDown = ray.intersectObjects(meshes, true);
+  if (hitsDown.length > 0) {
+    const snapped = hitsDown[0].point.clone();
+    snapped.y += offsetY;
+    return snapped;
+  }
+
+  ray.set(new THREE.Vector3(pos.x, pos.y - 2, pos.z), up);
+  ray.far = 10;
+  const hitsUp = ray.intersectObjects(meshes, true);
+  if (hitsUp.length > 0) {
+    const snapped = hitsUp[0].point.clone();
+    snapped.y += offsetY;
+    return snapped;
+  }
+
+  return null;
 }
 
 export function ExperienceMilestoneTrail() {
@@ -243,12 +289,14 @@ export function ExperienceMilestoneTrail() {
   const catBodyRef = useRef<RapierRigidBody | null>(null);
   const catPosRef = useRef(new THREE.Vector3());
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
-  const activeActionRef = useRef<THREE.AnimationAction | null>(null);
+  const walkActionRef = useRef<THREE.AnimationAction | null>(null);
+  const idleActionRef = useRef<THREE.AnimationAction | null>(null);
   const elapsedRef = useRef(0);
   const runningRef = useRef(false);
   const unlockedRef = useRef(0);
   const prevPosRef = useRef(new THREE.Vector3());
   const headingRef = useRef(0);
+  const lastPoseUpdateAtRef = useRef(0);
   const raycasterRef = useRef(new THREE.Raycaster());
   const docRayRef = useRef(new THREE.Raycaster());
   const pathPoints = useMemo(() => {
@@ -344,23 +392,48 @@ export function ExperienceMilestoneTrail() {
       return base;
     });
   }, [pathPoints, progressMarks, docMeshes]);
+  const milestoneStops = useMemo(
+    () =>
+      progressMarks
+        .map((progress, idx) => ({
+          idx,
+          progress,
+          position: flagPositions[idx],
+        }))
+        .filter((item) => Boolean(item.position)),
+    [progressMarks, flagPositions]
+  );
+  const targetJourneyProgress = useMemo(
+    () => milestoneStops[milestoneStops.length - 1]?.progress ?? 1,
+    [milestoneStops]
+  );
 
   useEffect(() => {
     const activeWalk = animations.find((clip) => /walk|run|tro(t|d)|move/i.test(clip.name)) ?? animations[0];
+    const activeIdle = animations.find((clip) => /idle|stand|breathe|rest/i.test(clip.name));
     if (!activeWalk) return;
     const mixer = new THREE.AnimationMixer(catModel);
     mixerRef.current = mixer;
-    const action = mixer.clipAction(activeWalk);
-    activeActionRef.current = action;
-    action.reset();
-    action.setLoop(THREE.LoopRepeat, Infinity);
-    action.setEffectiveTimeScale(1.8);
-    action.play();
+    const walkAction = mixer.clipAction(activeWalk);
+    walkActionRef.current = walkAction;
+    walkAction.reset();
+    walkAction.setLoop(THREE.LoopRepeat, Infinity);
+    walkAction.setEffectiveTimeScale(1.8);
+    walkAction.play();
+    if (activeIdle) {
+      const idleAction = mixer.clipAction(activeIdle);
+      idleActionRef.current = idleAction;
+      idleAction.setLoop(THREE.LoopRepeat, Infinity);
+      idleAction.enabled = true;
+      idleAction.setEffectiveTimeScale(1);
+    }
     return () => {
-      action.stop();
+      walkAction.stop();
+      idleActionRef.current?.stop();
       mixer.stopAllAction();
       mixerRef.current = null;
-      activeActionRef.current = null;
+      walkActionRef.current = null;
+      idleActionRef.current = null;
     };
   }, [animations, catModel]);
 
@@ -384,11 +457,17 @@ export function ExperienceMilestoneTrail() {
         position: [spawnPos.x, spawnPos.y, spawnPos.z],
         heading: headingRef.current,
       });
+      lastPoseUpdateAtRef.current = performance.now();
     }
-    if (activeActionRef.current) {
-      activeActionRef.current.reset();
-      activeActionRef.current.fadeIn(0.2);
-      activeActionRef.current.play();
+    if (walkActionRef.current) {
+      walkActionRef.current.reset();
+      walkActionRef.current.paused = false;
+      walkActionRef.current.setEffectiveTimeScale(1.8);
+      walkActionRef.current.fadeIn(0.2);
+      walkActionRef.current.play();
+    }
+    if (idleActionRef.current) {
+      idleActionRef.current.stop();
     }
   }, [activeSection, experienceJourneyKey, pathPoints, setExperienceUnlockedCount, setExperienceCatPose]);
 
@@ -398,7 +477,7 @@ export function ExperienceMilestoneTrail() {
   }, [activeSection, setExperienceCatPose]);
 
   useFrame((_, delta) => {
-    if (mixerRef.current) {
+    if (mixerRef.current && activeSection === "credits") {
       mixerRef.current.update(delta);
     }
     if (activeSection !== "credits") return;
@@ -406,37 +485,50 @@ export function ExperienceMilestoneTrail() {
     if (pathPoints.length < 2) return;
 
     elapsedRef.current += delta;
-    const progress = Math.min(1, elapsedRef.current / JOURNEY_DURATION_SECONDS);
+    const journeyProgress = Math.min(1, elapsedRef.current / JOURNEY_DURATION_SECONDS);
+    const progress = journeyProgress * targetJourneyProgress;
     const pos = lerpPath(pathPoints, progress);
+    const lastStop = milestoneStops[milestoneStops.length - 1];
+    const lastFlag = lastStop?.position;
+    const lastStopTangent = tangentAt(pathPoints, targetJourneyProgress);
+    const lastFlagCatStopRaw = lastFlag ? catStopNearFlag(lastFlag, lastStopTangent) : null;
+    const lastFlagCatStop =
+      lastFlagCatStopRaw && lastFlag
+        ? (snapPointToDocSurface(lastFlagCatStopRaw, docMeshes, DOC_SURFACE_OFFSET_Y) ?? lastFlag.clone())
+        : null;
+    // Smoothly guide the cat toward the actual last milestone destination.
+    const approachStart = Math.max(0, targetJourneyProgress - FINAL_APPROACH_WINDOW);
+    const approachMix =
+      targetJourneyProgress > approachStart
+        ? THREE.MathUtils.clamp((progress - approachStart) / (targetJourneyProgress - approachStart), 0, 1)
+        : 1;
+    const targetPos =
+      lastFlagCatStop && progress >= approachStart
+        ? new THREE.Vector3().lerpVectors(
+          pos,
+          lastFlagCatStop,
+          easeOutCubic(approachMix)
+        )
+        : pos;
     const tangent = tangentAt(pathPoints, progress);
     const body = catBodyRef.current;
     if (body) {
-      const dx = pos.x - prevPosRef.current.x;
-      const dz = pos.z - prevPosRef.current.z;
-      const len = Math.sqrt(dx * dx + dz * dz);
-      const targetHeading = len > 0.0001 ? Math.atan2(dx, dz) : headingRef.current;
-      const smooth = 1 - Math.exp(-10 * delta);
-      headingRef.current = THREE.MathUtils.lerp(headingRef.current, targetHeading, smooth);
-
       const gaitT = elapsedRef.current * 8.5;
-      const pitchRaw = -0.03 + Math.sin(gaitT * 0.7) * 0.02 + tangent.y * 0.12;
-      const pitch = THREE.MathUtils.clamp(pitchRaw, -0.14, 0.08);
-      const roll = Math.sin(gaitT * 0.5) * 0.04;
 
       // Cat movement follows doc path and snaps to doc surface.
-      const safePos = offsetOutward(pos, tangent, CAT_WALL_CLEARANCE);
-      const nextPos = new THREE.Vector3(safePos.x, safePos.y, safePos.z);
+      const safePos = offsetOutward(targetPos, tangent, CAT_WALL_CLEARANCE);
+      const desiredPos = new THREE.Vector3(safePos.x, safePos.y, safePos.z);
       if (docMeshes.length > 0) {
         const docRay = docRayRef.current;
-        docRay.set(new THREE.Vector3(nextPos.x, safePos.y + 3.5, nextPos.z), new THREE.Vector3(0, -1, 0));
+        docRay.set(new THREE.Vector3(desiredPos.x, safePos.y + 3.5, desiredPos.z), new THREE.Vector3(0, -1, 0));
         docRay.far = 8;
         const floorHits = docRay.intersectObjects(docMeshes, true);
         if (floorHits.length > 0) {
-          nextPos.y = floorHits[0].point.y + DOC_SURFACE_OFFSET_Y;
+          desiredPos.y = floorHits[0].point.y + DOC_SURFACE_OFFSET_Y;
         }
       }
       const currentPos = catPosRef.current.clone();
-      const moveDir = nextPos.clone().sub(currentPos);
+      const moveDir = desiredPos.clone().sub(currentPos);
       if (moveDir.lengthSq() > 0.000001) {
         let collisionResolved = false;
         if (world && rapier) {
@@ -457,7 +549,7 @@ export function ExperienceMilestoneTrail() {
               ? new THREE.Vector3(n.x, n.y, n.z).normalize()
               : new THREE.Vector3(-dir.x, 0, -dir.z).normalize();
             const hitPoint = rayOrigin.clone().addScaledVector(dir, Math.max(0, toi));
-            nextPos.copy(hitPoint).addScaledVector(normal, CAT_COLLISION_RADIUS + 0.01);
+            desiredPos.copy(hitPoint).addScaledVector(normal, CAT_COLLISION_RADIUS + 0.01);
             collisionResolved = true;
           }
         }
@@ -470,29 +562,47 @@ export function ExperienceMilestoneTrail() {
             const hit = hits[0];
             if (hit.face) {
               const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize();
-              nextPos.copy(hit.point).addScaledVector(normal, CAT_COLLISION_RADIUS);
+              desiredPos.copy(hit.point).addScaledVector(normal, CAT_COLLISION_RADIUS);
             } else {
-              nextPos.copy(currentPos);
+              desiredPos.copy(currentPos);
             }
           }
         }
       }
-      catPosRef.current.copy(nextPos);
-      body.setNextKinematicTranslation({ x: nextPos.x, y: nextPos.y, z: nextPos.z });
+      const moveSmooth = 1 - Math.exp(-CAT_MOVE_SMOOTHNESS * delta);
+      const smoothedPos = currentPos.clone().lerp(desiredPos, moveSmooth);
+      const vx = smoothedPos.x - currentPos.x;
+      const vz = smoothedPos.z - currentPos.z;
+      const planarStep = Math.sqrt(vx * vx + vz * vz);
+      const targetHeading = planarStep > 0.0001 ? Math.atan2(vx, vz) : headingRef.current;
+      const rotSmooth = 1 - Math.exp(-CAT_ROTATE_SMOOTHNESS * delta);
+      headingRef.current = THREE.MathUtils.lerp(headingRef.current, targetHeading, rotSmooth);
+
+      const speedFactor = THREE.MathUtils.clamp(planarStep / 0.04, 0.35, 1);
+      const pitchRaw = -0.01 + Math.sin(gaitT * 0.68) * (0.015 * speedFactor) + tangent.y * 0.25;
+      const pitch = THREE.MathUtils.clamp(pitchRaw, -0.12, 0.1);
+      const roll = Math.sin(gaitT * 0.48) * (0.03 * speedFactor);
+
+      catPosRef.current.copy(smoothedPos);
+      body.setNextKinematicTranslation({ x: smoothedPos.x, y: smoothedPos.y, z: smoothedPos.z });
       const q = new THREE.Quaternion().setFromEuler(
         new THREE.Euler(pitch, headingRef.current + Math.PI, roll, "XYZ")
       );
       body.setNextKinematicRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
       prevPosRef.current.copy(pos);
-      setExperienceCatPose({
-        position: [nextPos.x, nextPos.y, nextPos.z],
-        heading: headingRef.current,
-      });
+      const now = performance.now();
+      if (now - lastPoseUpdateAtRef.current >= CAT_POSE_UPDATE_INTERVAL_MS) {
+        setExperienceCatPose({
+          position: [smoothedPos.x, smoothedPos.y, smoothedPos.z],
+          heading: headingRef.current,
+        });
+        lastPoseUpdateAtRef.current = now;
+      }
     }
 
     let unlocked = 0;
-    for (let i = 0; i < experienceMilestones.length; i += 1) {
-      const threshold = progressMarks[i] ?? 1;
+    for (let i = 0; i < milestoneStops.length; i += 1) {
+      const threshold = milestoneStops[i].progress ?? 1;
       if (progress >= threshold) unlocked = i + 1;
     }
     if (unlocked !== unlockedRef.current) {
@@ -500,11 +610,18 @@ export function ExperienceMilestoneTrail() {
       setExperienceUnlockedCount(unlocked);
     }
 
-    if (progress >= 1) {
+    const hasReachedFinalStop =
+      Boolean(lastFlagCatStop) && catPosRef.current.distanceTo(lastFlagCatStop as THREE.Vector3) <= FINAL_STOP_DISTANCE;
+
+    if (journeyProgress >= 1 || hasReachedFinalStop) {
       if (body) {
-        const endPos = lerpPath(pathPoints, 1);
-        const finalPos = offsetOutward(endPos, tangentAt(pathPoints, 1), CAT_WALL_CLEARANCE);
-        if (docMeshes.length > 0) {
+        const endPos = lerpPath(pathPoints, targetJourneyProgress);
+        const desiredFinalPos = lastFlagCatStop
+          ? lastFlagCatStop.clone()
+          : offsetOutward(endPos, tangentAt(pathPoints, targetJourneyProgress), CAT_WALL_CLEARANCE);
+        const finalPos = hasReachedFinalStop ? catPosRef.current.clone() : desiredFinalPos;
+
+        if (!hasReachedFinalStop && docMeshes.length > 0) {
           const docRay = docRayRef.current;
           docRay.set(new THREE.Vector3(finalPos.x, finalPos.y + 3.5, finalPos.z), new THREE.Vector3(0, -1, 0));
           docRay.far = 8;
@@ -515,8 +632,28 @@ export function ExperienceMilestoneTrail() {
         }
         catPosRef.current.copy(finalPos);
         body.setNextKinematicTranslation({ x: finalPos.x, y: finalPos.y, z: finalPos.z });
+        setExperienceCatPose({
+          position: [finalPos.x, finalPos.y, finalPos.z],
+          heading: headingRef.current,
+        });
       }
       runningRef.current = false;
+      const finalUnlocked = experienceMilestones.length;
+      if (unlockedRef.current !== finalUnlocked) {
+        unlockedRef.current = finalUnlocked;
+        setExperienceUnlockedCount(finalUnlocked);
+      }
+      if (walkActionRef.current) {
+        walkActionRef.current.paused = false;
+        walkActionRef.current.enabled = true;
+        walkActionRef.current.setEffectiveTimeScale(1.5);
+        if (!walkActionRef.current.isRunning()) {
+          walkActionRef.current.play();
+        }
+      }
+      if (idleActionRef.current) {
+        idleActionRef.current.stop();
+      }
     }
   });
 
@@ -524,13 +661,15 @@ export function ExperienceMilestoneTrail() {
 
   return (
     <group name="experience-milestone-trail">
-      {flagPositions.map((flagPos, idx) => {
+      {milestoneStops.map((stop, idx) => {
+        const milestone = experienceMilestones[stop.idx];
+        const flagPos = stop.position;
         const isUnlocked = idx < experienceUnlockedCount;
-        const tangent = tangentAt(pathPoints, progressMarks[idx] ?? 0);
+        const tangent = tangentAt(pathPoints, stop.progress ?? 0);
         const flagYaw = Math.atan2(tangent.x, tangent.z);
         return (
-          <group key={experienceMilestones[idx].id} position={flagPos.toArray()} rotation={[0, flagYaw, 0]}>
-            <primitive object={torchModels[idx]} scale={0.35} position={[0, 0, 0]} />
+          <group key={milestone.id} position={flagPos.toArray()} rotation={[0, flagYaw, 0]}>
+            <primitive object={torchModels[stop.idx]} scale={0.35} position={[0, 0, 0]} />
             <pointLight
               position={[0, 5, 0]}
               color={isUnlocked ? "#ffa842" : "#4a6070"}
@@ -547,7 +686,7 @@ export function ExperienceMilestoneTrail() {
                     : "border-[#4e6673]/70 bg-[#11212b]/70 text-[#9fb8c4]",
                 ].join(" ")}
               >
-                {experienceMilestones[idx].period}
+                {milestone.period}
               </span>
             </Html>
           </group>
@@ -565,7 +704,7 @@ export function ExperienceMilestoneTrail() {
         <primitive
           object={catModel}
           scale={CAT_SCALE}
-          position={[0, 0.03, 0]}
+          position={[0, 0, 0]}
           rotation={[0, Math.PI / 2, 0]}
         />
       </RigidBody>

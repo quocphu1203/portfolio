@@ -28,6 +28,7 @@ import { PortfolioInfoPanel } from "./_components/ui/PortfolioInfoPanel";
 
 function FantasyIslandCanvasInner() {
   const controlsRef = useRef<OrbitControlsInstance | null>(null);
+  const oceanAudioRef = useRef<HTMLAudioElement | null>(null);
   const [started, setStarted] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(1440);
   const [load, setLoad] = useState<IslandLoadSnapshot>({
@@ -57,6 +58,23 @@ function FantasyIslandCanvasInner() {
     window.addEventListener("resize", sync, { passive: true });
     return () => window.removeEventListener("resize", sync);
   }, []);
+
+  useEffect(() => {
+    const audio = oceanAudioRef.current;
+    if (!audio) return;
+
+    audio.volume = 0.15;
+
+    if (!started) {
+      audio.pause();
+      audio.currentTime = 0;
+      return;
+    }
+
+    void audio.play().catch(() => {
+      // Ignore autoplay policy errors; user can retry with interaction.
+    });
+  }, [started]);
 
   const isMobile = viewportWidth < 768;
   const isTablet = viewportWidth >= 768 && viewportWidth < 1024;
@@ -109,6 +127,8 @@ function FantasyIslandCanvasInner() {
           </Physics>
         </Suspense>
       </Canvas>
+
+      <audio ref={oceanAudioRef} src="/ocean.mp3" loop preload="auto" />
 
       {!started && (
         <IslandIntroOverlay

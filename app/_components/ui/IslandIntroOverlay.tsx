@@ -2,6 +2,7 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
+import Image from "next/image";
 
 type IslandIntroOverlayProps = {
   progress: number;
@@ -24,6 +25,17 @@ export function IslandIntroOverlay({
       <p className="text-[10px] font-medium tracking-[0.5em] text-[#6a7f8e] uppercase">
         {t("brand")}
       </p>
+
+      <div className="relative h-24 w-44 sm:h-28 sm:w-52 md:h-32 md:w-60">
+        <Image
+          src="/boat.gif"
+          alt="Loading boat"
+          fill
+          unoptimized
+          priority
+          className="object-contain drop-shadow-[0_8px_20px_rgba(0,0,0,0.45)]"
+        />
+      </div>
 
       <h1
         className="max-w-4xl text-center font-sans text-[clamp(1.75rem,6vw,4rem)] font-medium leading-tight tracking-tight text-[#f0f4f8]"
