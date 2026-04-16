@@ -11,7 +11,9 @@
     "start": "Start"
   },
   "chrome": {
-    "hintControls": "Drag to rotate · Scroll to zoom"
+    "hintControls": "Drag to rotate · Scroll to zoom",
+    "hintProjects": "Tap Wingull to view project details",
+    "hintEscBack": "Press Esc to return to main view"
   },
   "time": {
     "dawn": "Dawn",

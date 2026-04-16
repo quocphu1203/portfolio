@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
 import { getCameraPresets, type NavId } from "./portfolioNavData";
@@ -63,6 +63,19 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
     position: [number, number, number];
     heading: number;
   } | null>(null);
+  const seagullAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    const audio = new Audio("/seagull.mp3");
+    audio.preload = "auto";
+    audio.volume = 0.45;
+    seagullAudioRef.current = audio;
+    return () => {
+      audio.pause();
+      audio.currentTime = 0;
+      seagullAudioRef.current = null;
+    };
+  }, []);
 
   const requestNav = useCallback(
     (id: NavId) => {
@@ -83,6 +96,14 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
         setBoatThoughtVisible(false);
         setProjectBirdsVisible(true);
         setSelectedProjectId(null);
+        const audio = seagullAudioRef.current;
+        if (audio) {
+          audio.pause();
+          audio.currentTime = 0;
+          void audio.play().catch(() => {
+            // Ignore blocked play promise on strict autoplay policies.
+          });
+        }
         return;
       }
 
@@ -204,6 +225,14 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
     setBoatPaused(false);
     setBoatThoughtVisible(false);
     setProjectBirdsVisible(true);
+    const audio = seagullAudioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+      void audio.play().catch(() => {
+        // Ignore blocked play promise on strict autoplay policies.
+      });
+    }
   }, []);
 
   const value = useMemo(

@@ -16,7 +16,7 @@ import { usePortfolioNav } from "../navigation/PortfolioNavContext";
 const JOURNEY_DURATION_SECONDS = 8.2;
 const CAT_SCALE = 1 / 80;
 const CAT_WALL_CLEARANCE = 0;
-const CAT_COLLISION_RADIUS = 0.1;
+const CAT_COLLISION_RADIUS = 0.05;
 const DOC_SURFACE_OFFSET_Y = 0.005;
 const FLAG_OUTER_OFFSET = 0.55;
 const FLAG_SURFACE_OFFSET_Y = 0.05;
@@ -28,6 +28,15 @@ const FINAL_STOP_DISTANCE = 0.18;
 const CAT_POSE_UPDATE_INTERVAL_MS = 50;
 const CAT_MOVE_SMOOTHNESS = 14;
 const CAT_ROTATE_SMOOTHNESS = 9;
+const CAT_BODY_DIP_X = -0.12;
+const CAT_HEAD_LIFT_X = 0.18;
+const FIXED_TORCH_OFFSETS: [number, number, number][] = [
+  [-0.2, 0, -0.12],
+  [-0.18, 0, -0.1],
+  [-0.16, 0, -0.08],
+  [-0.15, 0, -0.08],
+  [-0.14, 0, -0.06],
+];
 const FALLBACK_PATH: [number, number, number][] = [
   [3.2, 2.1, 2.2],
   [2.4, 2.9, 1.3],
@@ -256,6 +265,17 @@ function snapPointToDocSurface(pos: THREE.Vector3, meshes: THREE.Mesh[], offsetY
   return null;
 }
 
+function resolveDocRoot(scene: THREE.Object3D) {
+  const direct = scene.getObjectByName("doc");
+  if (direct) return direct;
+  let fuzzy: THREE.Object3D | null = null;
+  scene.traverse((child) => {
+    if (fuzzy) return;
+    if (child.name.toLowerCase().includes("doc")) fuzzy = child;
+  });
+  return fuzzy;
+}
+
 export function ExperienceMilestoneTrail() {
   const locale = useLocale() as AppLocale;
   const experienceMilestones = getExperienceMilestones(locale);
@@ -291,26 +311,31 @@ export function ExperienceMilestoneTrail() {
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const walkActionRef = useRef<THREE.AnimationAction | null>(null);
   const idleActionRef = useRef<THREE.AnimationAction | null>(null);
+  const catBodyBoneRefs = useRef<THREE.Bone[]>([]);
+  const catHeadBoneRefs = useRef<THREE.Bone[]>([]);
   const elapsedRef = useRef(0);
   const runningRef = useRef(false);
   const unlockedRef = useRef(0);
   const prevPosRef = useRef(new THREE.Vector3());
   const headingRef = useRef(0);
+  const surfaceNormalRef = useRef(new THREE.Vector3(0, 1, 0));
   const lastPoseUpdateAtRef = useRef(0);
   const raycasterRef = useRef(new THREE.Raycaster());
   const docRayRef = useRef(new THREE.Raycaster());
   const pathPoints = useMemo(() => {
     const refreshKey = `${activeSection ?? "none"}-${experienceJourneyKey}`;
-    const pathNode = worldScene.getObjectByName("doc");
+    const pathNode = resolveDocRoot(worldScene);
     if (!pathNode) return smoothPath(FALLBACK_PATH.map((p) => new THREE.Vector3(p[0], p[1], p[2])));
+    pathNode.updateWorldMatrix(true, true);
     const built = pointsFromPathObject(pathNode);
     if (built.length >= 2) return smoothPath(built);
     void refreshKey;
     return smoothPath(FALLBACK_PATH.map((p) => new THREE.Vector3(p[0], p[1], p[2])));
   }, [worldScene, activeSection, experienceJourneyKey]);
   const docMeshes = useMemo(() => {
-    const docRoot = worldScene.getObjectByName("doc");
+    const docRoot = resolveDocRoot(worldScene);
     if (!docRoot) return [] as THREE.Mesh[];
+    docRoot.updateWorldMatrix(true, true);
     const meshes: THREE.Mesh[] = [];
     docRoot.traverse((child) => {
       const mesh = child as THREE.Mesh;
@@ -407,8 +432,23 @@ export function ExperienceMilestoneTrail() {
     () => milestoneStops[milestoneStops.length - 1]?.progress ?? 1,
     [milestoneStops]
   );
-
   useEffect(() => {
+    const bodyBones: THREE.Bone[] = [];
+    const headBones: THREE.Bone[] = [];
+    catModel.traverse((child) => {
+      if (!(child instanceof THREE.Bone)) return;
+      const n = child.name.toLowerCase();
+      if (/head|neck/.test(n)) {
+        headBones.push(child);
+        return;
+      }
+      if (/hips|pelvis|spine|chest/.test(n)) {
+        bodyBones.push(child);
+      }
+    });
+    catBodyBoneRefs.current = bodyBones.slice(0, 3);
+    catHeadBoneRefs.current = headBones.slice(0, 2);
+
     const activeWalk = animations.find((clip) => /walk|run|tro(t|d)|move/i.test(clip.name)) ?? animations[0];
     const activeIdle = animations.find((clip) => /idle|stand|breathe|rest/i.test(clip.name));
     if (!activeWalk) return;
@@ -428,6 +468,8 @@ export function ExperienceMilestoneTrail() {
       idleAction.setEffectiveTimeScale(1);
     }
     return () => {
+      catBodyBoneRefs.current = [];
+      catHeadBoneRefs.current = [];
       walkAction.stop();
       idleActionRef.current?.stop();
       mixer.stopAllAction();
@@ -479,6 +521,12 @@ export function ExperienceMilestoneTrail() {
   useFrame((_, delta) => {
     if (mixerRef.current && activeSection === "credits") {
       mixerRef.current.update(delta);
+      for (const bodyBone of catBodyBoneRefs.current) {
+        bodyBone.rotateX(CAT_BODY_DIP_X);
+      }
+      for (const headBone of catHeadBoneRefs.current) {
+        headBone.rotateX(CAT_HEAD_LIFT_X);
+      }
     }
     if (activeSection !== "credits") return;
     if (!runningRef.current) return;
@@ -525,6 +573,14 @@ export function ExperienceMilestoneTrail() {
         const floorHits = docRay.intersectObjects(docMeshes, true);
         if (floorHits.length > 0) {
           desiredPos.y = floorHits[0].point.y + DOC_SURFACE_OFFSET_Y;
+          if (floorHits[0].face) {
+            const faceNormal = floorHits[0].face.normal
+              .clone()
+              .transformDirection(floorHits[0].object.matrixWorld)
+              .normalize();
+            const normalSmooth = 1 - Math.exp(-8 * delta);
+            surfaceNormalRef.current.lerp(faceNormal, normalSmooth).normalize();
+          }
         }
       }
       const currentPos = catPosRef.current.clone();
@@ -579,15 +635,29 @@ export function ExperienceMilestoneTrail() {
       headingRef.current = THREE.MathUtils.lerp(headingRef.current, targetHeading, rotSmooth);
 
       const speedFactor = THREE.MathUtils.clamp(planarStep / 0.04, 0.35, 1);
-      const pitchRaw = -0.01 + Math.sin(gaitT * 0.68) * (0.015 * speedFactor) + tangent.y * 0.25;
-      const pitch = THREE.MathUtils.clamp(pitchRaw, -0.12, 0.1);
+      const pitchRaw = 0.015 + Math.sin(gaitT * 0.68) * (0.015 * speedFactor) + tangent.y * 0.25;
+      const pitch = THREE.MathUtils.clamp(pitchRaw, -0.08, 0.1);
       const roll = Math.sin(gaitT * 0.48) * (0.03 * speedFactor);
 
       catPosRef.current.copy(smoothedPos);
       body.setNextKinematicTranslation({ x: smoothedPos.x, y: smoothedPos.y, z: smoothedPos.z });
-      const q = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(pitch, headingRef.current + Math.PI, roll, "XYZ")
+      const up = surfaceNormalRef.current.clone().normalize();
+      const headingForward = new THREE.Vector3(
+        Math.sin(headingRef.current + Math.PI),
+        0,
+        Math.cos(headingRef.current + Math.PI)
       );
+      const forwardProjected = headingForward.sub(up.clone().multiplyScalar(headingForward.dot(up)));
+      if (forwardProjected.lengthSq() < 1e-6) {
+        forwardProjected.set(0, 0, 1).sub(up.clone().multiplyScalar(up.z));
+      }
+      forwardProjected.normalize();
+      const right = new THREE.Vector3().crossVectors(up, forwardProjected).normalize();
+      const forward = new THREE.Vector3().crossVectors(right, up).normalize();
+      const basis = new THREE.Matrix4().makeBasis(right, up, forward);
+      const surfaceQuat = new THREE.Quaternion().setFromRotationMatrix(basis);
+      const localOffset = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, 0, roll, "XYZ"));
+      const q = surfaceQuat.multiply(localOffset);
       body.setNextKinematicRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
       prevPosRef.current.copy(pos);
       const now = performance.now();
@@ -628,6 +698,16 @@ export function ExperienceMilestoneTrail() {
           const floorHits = docRay.intersectObjects(docMeshes, true);
           if (floorHits.length > 0) {
             finalPos.y = floorHits[0].point.y + DOC_SURFACE_OFFSET_Y;
+            if (floorHits[0].face) {
+              surfaceNormalRef.current
+                .copy(
+                  floorHits[0].face.normal
+                    .clone()
+                    .transformDirection(floorHits[0].object.matrixWorld)
+                    .normalize()
+                )
+                .normalize();
+            }
           }
         }
         catPosRef.current.copy(finalPos);
@@ -667,16 +747,22 @@ export function ExperienceMilestoneTrail() {
         const isUnlocked = idx < experienceUnlockedCount;
         const tangent = tangentAt(pathPoints, stop.progress ?? 0);
         const flagYaw = Math.atan2(tangent.x, tangent.z);
+        const torchOffset = FIXED_TORCH_OFFSETS[Math.min(idx, FIXED_TORCH_OFFSETS.length - 1)];
+        const torchModel = torchModels[stop.idx];
         return (
           <group key={milestone.id} position={flagPos.toArray()} rotation={[0, flagYaw, 0]}>
-            <primitive object={torchModels[stop.idx]} scale={0.35} position={[0, 0, 0]} />
-            <pointLight
-              position={[0, 5, 0]}
-              color={isUnlocked ? "#ffa842" : "#4a6070"}
-              intensity={isUnlocked ? 4.5 : 0.4}
-              distance={isUnlocked ? 5 : 1.5}
-              decay={1.8}
-            />
+            {torchModel && (
+              <>
+                <primitive object={torchModel} scale={0.35} position={torchOffset} />
+                <pointLight
+                  position={[torchOffset[0], 5, torchOffset[2]]}
+                  color={isUnlocked ? "#ffa842" : "#4a6070"}
+                  intensity={isUnlocked ? 4.5 : 0.4}
+                  distance={isUnlocked ? 5 : 1.5}
+                  decay={1.8}
+                />
+              </>
+            )}
             <Html position={[0.05, 1.45, 0]} distanceFactor={16} center zIndexRange={[8, 0]}>
               <span
                 className={[

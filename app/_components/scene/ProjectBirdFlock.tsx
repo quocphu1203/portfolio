@@ -44,7 +44,6 @@ export function ProjectBirdFlock() {
   const birdRefs = useRef<(THREE.Group | null)[]>([]);
   const frozenAngleRef = useRef<Record<string, number>>({});
   const prevPosRef = useRef<Record<string, THREE.Vector3>>({});
-  const seagullAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const flockAngularSpeed = 0.19;
 
@@ -64,37 +63,6 @@ export function ProjectBirdFlock() {
     [scene, projectBirdItems]
   );
 
-  useEffect(() => {
-    const audio = new Audio("/seagull.mp3");
-    audio.preload = "auto";
-    audio.volume = 0.45;
-    seagullAudioRef.current = audio;
-
-    return () => {
-      audio.pause();
-      audio.currentTime = 0;
-      seagullAudioRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    const audio = seagullAudioRef.current;
-    if (!audio) return;
-    if (activeSection === "projects") return;
-    audio.pause();
-    audio.currentTime = 0;
-  }, [activeSection]);
-
-  const triggerProjectSound = useCallback(() => {
-    const audio = seagullAudioRef.current;
-    if (!audio) return;
-    audio.pause();
-    audio.currentTime = 0;
-    void audio.play().catch(() => {
-      // Ignore blocked play promise on strict autoplay policies.
-    });
-  }, []);
-
   const focusProjectByIndex = useCallback(
     (index: number) => {
       const project = projectBirdItems[index];
@@ -112,9 +80,8 @@ export function ProjectBirdFlock() {
           Math.sin(0.65 + cfg.angleOffset) * cfg.radius,
         ]);
       }
-      triggerProjectSound();
     },
-    [projectBirdItems, configs, focusProjectBird, triggerProjectSound]
+    [projectBirdItems, configs, focusProjectBird]
   );
 
   useFrame((_, delta) => {

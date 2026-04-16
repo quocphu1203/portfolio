@@ -11,7 +11,9 @@
     "start": "Bắt đầu"
   },
   "chrome": {
-    "hintControls": "Kéo để xoay · Cuộn để zoom"
+    "hintControls": "Kéo để xoay · Cuộn để zoom",
+    "hintProjects": "Nhấn vào Wingull để xem chi tiết dự án",
+    "hintEscBack": "Nhấn Esc để trở về giao diện chính"
   },
   "time": {
     "dawn": "Bình minh",

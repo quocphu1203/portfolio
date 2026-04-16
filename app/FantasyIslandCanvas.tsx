@@ -30,6 +30,9 @@ function FantasyIslandCanvasInner() {
   const controlsRef = useRef<OrbitControlsInstance | null>(null);
   const oceanAudioRef = useRef<HTMLAudioElement | null>(null);
   const [started, setStarted] = useState(false);
+  const [introExiting, setIntroExiting] = useState(false);
+  const [fogRevealMounted, setFogRevealMounted] = useState(false);
+  const [fogRevealOpen, setFogRevealOpen] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(1440);
   const [load, setLoad] = useState<IslandLoadSnapshot>({
     progress: 0,
@@ -76,6 +79,12 @@ function FantasyIslandCanvasInner() {
     });
   }, [started]);
 
+  useEffect(() => {
+    if (!introExiting) return;
+    const t = window.setTimeout(() => setIntroExiting(false), 700);
+    return () => window.clearTimeout(t);
+  }, [introExiting]);
+
   const isMobile = viewportWidth < 768;
   const isTablet = viewportWidth >= 768 && viewportWidth < 1024;
   const cameraFov = isMobile ? 40 : isTablet ? 37 : 34;
@@ -84,20 +93,17 @@ function FantasyIslandCanvasInner() {
   const signpostScaleMultiplier = isMobile ? 1.22 : isTablet ? 1.1 : 1;
 
   return (
-    <div
-      className={[
-        "relative h-screen w-full overflow-hidden bg-[#0c0f14]",
-        started ? "cursor-none" : "",
-      ].join(" ")}
-    >
+    <div className="relative h-screen w-full overflow-hidden bg-[#0c0f14]">
       <Canvas
         shadows
         camera={{ position: [0, 4.5, 14], fov: cameraFov, near: 0.1, far: 2_000_000 }}
-        className={started ? "opacity-100" : "opacity-[0.22]"}
+        className={[
+          started ? "opacity-100 scale-100 blur-0" : "opacity-[0.22] scale-[1.03] blur-[2px]",
+          "transition-[opacity,transform,filter] duration-900 ease-out",
+        ].join(" ")}
         style={{
           width: "100%",
           height: "100%",
-          transition: "opacity 0.9s ease-out",
         }}
         gl={{
           antialias: true,
@@ -130,11 +136,33 @@ function FantasyIslandCanvasInner() {
 
       <audio ref={oceanAudioRef} src="/ocean.mp3" loop preload="auto" />
 
-      {!started && (
+      {(!started || introExiting) && (
         <IslandIntroOverlay
           progress={load.progress}
           canStart={canStart}
-          onStart={() => setStarted(true)}
+          exiting={introExiting}
+          onStart={() => {
+            setStarted(true);
+            setIntroExiting(true);
+            setFogRevealMounted(true);
+            setFogRevealOpen(false);
+            requestAnimationFrame(() => setFogRevealOpen(true));
+            window.setTimeout(() => setFogRevealMounted(false), 1300);
+          }}
+        />
+      )}
+
+      {fogRevealMounted && (
+        <div
+          className={[
+            "pointer-events-none absolute inset-0 z-9 transition-[opacity,transform,filter] duration-1200 ease-out",
+            fogRevealOpen ? "opacity-0 scale-[1.08] blur-0" : "opacity-95 scale-100 blur-[6px]",
+          ].join(" ")}
+          style={{
+            background:
+              "radial-gradient(ellipse at 50% 45%, rgba(245,250,255,0.86) 0%, rgba(220,232,242,0.62) 35%, rgba(151,176,194,0.45) 62%, rgba(74,95,112,0.28) 100%)",
+          }}
+          aria-hidden
         />
       )}
 

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { X } from "lucide-react";
@@ -37,6 +37,15 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
   }, [visible, activeSection, flyToDefault, selectedProjectId, setSelectedProjectId]);
 
   const panelRef = useRef<HTMLDivElement>(null);
+  const [isMobileLike, setIsMobileLike] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 767px), (pointer: coarse)");
+    const sync = () => setIsMobileLike(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
 
   const handleClose = useCallback(() => {
     if (activeSection === "projects" && selectedProjectId) {
@@ -73,7 +82,20 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
     .map((paragraph) => paragraph.trim())
     .filter(Boolean);
 
-  if (isProjects && !selectedProject) return null;
+  if (isProjects && !selectedProject) {
+    if (!isMobileLike) return null;
+    return (
+      <div className="fixed inset-x-3 bottom-3 z-520 flex justify-center md:hidden">
+        <button
+          type="button"
+          onClick={flyToDefault}
+          className="rounded-full border border-[#5a7a8a]/70 bg-[#0e1a22]/80 px-4 py-2 text-sm text-[#d7e8f1] backdrop-blur-sm transition hover:border-[#8fb8c8] hover:text-white"
+        >
+          {t("close")}
+        </button>
+      </div>
+    );
+  }
 
   const closeButton = (
     <button
@@ -124,16 +146,16 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
                 </DialogDescription>
                 {copy.links && copy.links.length > 0 && (
                   <ul className="mb-6 flex flex-wrap gap-2.5">
-                  {copy.links.map((link) => (
-                    <li key={link.href + link.label}>
-                      <a
-                        href={link.href}
-                        className="inline-block rounded-full border border-[#7ba1b5]/70 bg-[#12212b]/25 px-3.5 py-1.5 text-sm text-[#ddedf7] transition hover:border-[#a4d0e6] hover:text-white"
-                      >
-                        {link.label}
-                      </a>
-                    </li>
-                  ))}
+                    {copy.links.map((link) => (
+                      <li key={link.href + link.label}>
+                        <a
+                          href={link.href}
+                          className="inline-block rounded-full border border-[#7ba1b5]/70 bg-[#12212b]/25 px-3.5 py-1.5 text-sm text-[#ddedf7] transition hover:border-[#a4d0e6] hover:text-white"
+                        >
+                          {link.label}
+                        </a>
+                      </li>
+                    ))}
                   </ul>
                 )}
               </div>

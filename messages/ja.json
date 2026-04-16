@@ -11,7 +11,9 @@
     "start": "開始"
   },
   "chrome": {
-    "hintControls": "ドラッグで回転・スクロールでズーム"
+    "hintControls": "ドラッグで回転・スクロールでズーム",
+    "hintProjects": "Wingullをタップしてプロジェクト詳細を見る",
+    "hintEscBack": "Escでメイン画面に戻る"
   },
   "time": {
     "dawn": "夜明け",

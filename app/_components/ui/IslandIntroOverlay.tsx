@@ -7,12 +7,14 @@ import Image from "next/image";
 type IslandIntroOverlayProps = {
   progress: number;
   canStart: boolean;
+  exiting?: boolean;
   onStart: () => void;
 };
 
 export function IslandIntroOverlay({
   progress,
   canStart,
+  exiting = false,
   onStart,
 }: IslandIntroOverlayProps) {
   const t = useTranslations("intro");
@@ -20,7 +22,10 @@ export function IslandIntroOverlay({
 
   return (
     <div
-      className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-8 bg-[#0a0c10]/95 px-4 backdrop-blur-[14px] sm:gap-10 sm:px-6 md:gap-12"
+      className={[
+        "absolute inset-0 z-10 flex flex-col items-center justify-center gap-8 bg-[#0a0c10]/95 px-4 backdrop-blur-[14px] transition-[opacity,transform,filter] duration-700 ease-out sm:gap-10 sm:px-6 md:gap-12",
+        exiting ? "pointer-events-none opacity-0 scale-[1.02] blur-[2px]" : "opacity-100 scale-100 blur-0",
+      ].join(" ")}
     >
       <p className="text-[10px] font-medium tracking-[0.5em] text-[#6a7f8e] uppercase">
         {t("brand")}

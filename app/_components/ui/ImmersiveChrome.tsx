@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
+import { usePortfolioNav } from "../navigation/PortfolioNavContext";
 
 const NOISE_SVG =
   "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E\")";
@@ -12,39 +13,48 @@ type ImmersiveChromeProps = {
 
 export function ImmersiveChrome({ active }: ImmersiveChromeProps) {
   const t = useTranslations("chrome");
+  const { activeSection, selectedProjectId } = usePortfolioNav();
   const [hintVisible, setHintVisible] = useState(true);
   const [reduceMotion, setReduceMotion] = useState(false);
-  const [finePointer, setFinePointer] = useState(false);
+  const [keyboardHintAllowed, setKeyboardHintAllowed] = useState(false);
 
   useEffect(() => {
     const mqR = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const mqP = window.matchMedia("(pointer: fine)");
+    const mqK = window.matchMedia("(hover: hover) and (pointer: fine)");
     const sync = () => {
       setReduceMotion(mqR.matches);
-      setFinePointer(mqP.matches);
+      setKeyboardHintAllowed(mqK.matches);
     };
     let raf = 0;
     raf = requestAnimationFrame(() => {
       sync();
     });
     mqR.addEventListener("change", sync);
-    mqP.addEventListener("change", sync);
+    mqK.addEventListener("change", sync);
     return () => {
       cancelAnimationFrame(raf);
       mqR.removeEventListener("change", sync);
-      mqP.removeEventListener("change", sync);
+      mqK.removeEventListener("change", sync);
     };
   }, []);
 
   useEffect(() => {
     if (!active) return;
+    if (activeSection === "projects") return;
     const t = window.setTimeout(() => {
       setHintVisible(false);
     }, 4500);
     return () => window.clearTimeout(t);
-  }, [active]);
+  }, [active, activeSection]);
 
   if (!active) return null;
+
+  const hintText =
+    activeSection === "projects" && !selectedProjectId
+      ? t("hintProjects")
+      : t("hintControls");
+  const escHintText = keyboardHintAllowed ? t("hintEscBack") : null;
+  const effectiveHintVisible = activeSection === "projects" ? true : hintVisible;
 
   return (
     <>
@@ -70,75 +80,16 @@ export function ImmersiveChrome({ active }: ImmersiveChromeProps) {
         aria-hidden
       />
 
-      {!reduceMotion && finePointer && <ImmersiveCursor />}
-
       <div
         className={[
           "pointer-events-none fixed left-0 right-0 z-8 text-center text-[10px] tracking-[0.18em] text-[#9fb0bd]/80 uppercase transition-opacity duration-700 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:text-[11px] sm:tracking-[0.25em] sm:bottom-10",
-          hintVisible ? "opacity-100" : "opacity-0",
+          effectiveHintVisible ? "opacity-100" : "opacity-0",
         ].join(" ")}
         aria-live="polite"
       >
-        {t("hintControls")}
+        <span>{hintText}</span>
+        {escHintText ? <span>{` · ${escHintText}`}</span> : null}
       </div>
-    </>
-  );
-}
-
-function ImmersiveCursor() {
-  const dot = useRef({ x: 0, y: 0 });
-  const ring = useRef({ x: 0, y: 0 });
-  const target = useRef({ x: 0, y: 0 });
-  const dotEl = useRef<HTMLDivElement>(null);
-  const ringEl = useRef<HTMLDivElement>(null);
-  const raf = useRef(0);
-
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      target.current.x = e.clientX;
-      target.current.y = e.clientY;
-      dot.current.x = e.clientX;
-      dot.current.y = e.clientY;
-    };
-
-    window.addEventListener("mousemove", onMove, { passive: true });
-
-    const tick = () => {
-      ring.current.x += (target.current.x - ring.current.x) * 0.12;
-      ring.current.y += (target.current.y - ring.current.y) * 0.12;
-
-      const d = dotEl.current;
-      const r = ringEl.current;
-      if (d) {
-        d.style.transform = `translate3d(${dot.current.x}px, ${dot.current.y}px, 0) translate(-50%, -50%)`;
-      }
-      if (r) {
-        r.style.transform = `translate3d(${ring.current.x}px, ${ring.current.y}px, 0) translate(-50%, -50%)`;
-      }
-      raf.current = requestAnimationFrame(tick);
-    };
-    raf.current = requestAnimationFrame(tick);
-
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      cancelAnimationFrame(raf.current);
-    };
-  }, []);
-
-  return (
-    <>
-      <div
-        ref={ringEl}
-        className="pointer-events-none fixed left-0 top-0 z-100 h-9 w-9 rounded-full border border-[#8fb8c8]/45"
-        style={{ willChange: "transform" }}
-        aria-hidden
-      />
-      <div
-        ref={dotEl}
-        className="pointer-events-none fixed left-0 top-0 z-101 h-1.5 w-1.5 rounded-full bg-[#e8eef2]"
-        style={{ willChange: "transform" }}
-        aria-hidden
-      />
     </>
   );
 }
