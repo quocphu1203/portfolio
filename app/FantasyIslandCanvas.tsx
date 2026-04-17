@@ -14,6 +14,7 @@ import { FloatingBoats } from "./_components/scene/FloatingBoat";
 import { ExperienceMilestoneTrail } from "./_components/scene/ExperienceMilestoneTrail";
 import { ProjectBirdFlock } from "./_components/scene/ProjectBirdFlock";
 import { SkyBackdrop } from "./_components/scene/SkyBackdrop";
+import { StartFogReveal } from "./_components/scene/StartFogReveal";
 import { TimeOfDayProvider } from "./_components/time/TimeOfDayContext";
 import { TimeOfDayLighting } from "./_components/time/TimeOfDayLighting";
 import { TimeOfDayToggle } from "./_components/time/TimeOfDayToggle";
@@ -114,6 +115,7 @@ function FantasyIslandCanvasInner() {
       >
         <IslandLoadProgress onChange={onLoadChange} />
         <TimeOfDayLighting />
+        <StartFogReveal active={fogRevealMounted} open={fogRevealOpen} />
 
         <Suspense fallback={null}>
           <SkyBackdrop />
