@@ -8,6 +8,11 @@
   "intro": {
     "brand": "Island portfolio",
     "loading": "Building island... {pct}%",
+    "loadingHint": "Preparing the 3D scene, models, ocean, and interactive portfolio paths.",
+    "assetsReady": "Assets",
+    "optimizedMode": "Optimized mode",
+    "qualityMode": "Quality mode",
+    "auto": "Auto",
     "start": "Start"
   },
   "chrome": {

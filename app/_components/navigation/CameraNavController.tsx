@@ -59,7 +59,12 @@ export function CameraNavController({
       radial.normalize();
       // Keep camera outside island and look inward to cat.
       const desiredCam = new THREE.Vector3(cx, cy + 3.6, cz).add(radial.multiplyScalar(10.5));
-      const desiredTarget = new THREE.Vector3(cx, cy + 0.55, cz);
+      const catFocus = new THREE.Vector3(cx, cy + 0.55, cz);
+      const viewDir = catFocus.clone().sub(desiredCam).normalize();
+      const cameraRight = new THREE.Vector3().crossVectors(viewDir, new THREE.Vector3(0, 1, 0));
+      if (cameraRight.lengthSq() < 0.0001) cameraRight.set(1, 0, 0);
+      cameraRight.normalize();
+      const desiredTarget = catFocus.add(cameraRight.multiplyScalar(3.2));
       const followK = 1 - Math.exp(-5.5 * dt);
       camera.position.lerp(desiredCam, followK);
       ctrl.target.lerp(desiredTarget, followK);

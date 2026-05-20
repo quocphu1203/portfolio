@@ -180,12 +180,53 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
                 <div className="px-4 sm:px-6 md:px-8 lg:px-10">
                   <div className="mx-auto w-full">
                     <DialogDescription className="max-w-none text-[1rem] leading-[1.9] text-[#e6f0f7] sm:text-[1.03rem] sm:leading-[1.92]">
-                      <div className="space-y-5 text-pretty md:space-y-6">
-                        {aboutParagraphs.map((paragraph) => (
-                          <p key={paragraph} className="text-[#e2edf5]/95">
-                            {paragraph}
-                          </p>
-                        ))}
+                      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(18rem,0.75fr)] lg:gap-8">
+                        <div className="space-y-5 text-pretty md:space-y-6">
+                          {aboutParagraphs.map((paragraph, index) => (
+                            <p
+                              key={paragraph}
+                              className={[
+                                "text-[#e2edf5]/95",
+                                index === 0 ? "text-[1.06rem] leading-[1.92] text-[#f2f8fc]" : "",
+                              ].join(" ")}
+                            >
+                              {paragraph}
+                            </p>
+                          ))}
+                        </div>
+
+                        <aside className="space-y-4">
+                          {copy.highlights && copy.highlights.length > 0 && (
+                            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                              {copy.highlights.map((item) => (
+                                <div
+                                  key={item.label}
+                                  className="rounded-lg border border-[#5f7d8b]/55 bg-[#11232d]/48 p-4"
+                                >
+                                  <p className="mb-1 text-[10px] tracking-[0.16em] text-[#9cc4d4] uppercase">
+                                    {item.label}
+                                  </p>
+                                  <p className="text-sm leading-relaxed text-[#e0eef6]">{item.value}</p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {copy.facts && copy.facts.length > 0 && (
+                            <div className="rounded-lg border border-[#4b6877]/50 bg-[#0d1b24]/45 p-4">
+                              <ul className="flex flex-wrap gap-2">
+                                {copy.facts.map((fact) => (
+                                  <li
+                                    key={fact}
+                                    className="rounded-full border border-[#6a90a2]/65 bg-[#17313d]/55 px-3 py-1 text-xs text-[#d1e7f2]"
+                                  >
+                                    {fact}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </aside>
                       </div>
                     </DialogDescription>
                   </div>

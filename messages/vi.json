@@ -8,6 +8,11 @@
   "intro": {
     "brand": "Island portfolio",
     "loading": "Đang dựng đảo... {pct}%",
+    "loadingHint": "Đang chuẩn bị cảnh 3D, mô hình, mặt biển và các lối tương tác của portfolio.",
+    "assetsReady": "Tài nguyên",
+    "optimizedMode": "Chế độ tối ưu",
+    "qualityMode": "Chế độ chất lượng",
+    "auto": "Tự động",
     "start": "Bắt đầu"
   },
   "chrome": {

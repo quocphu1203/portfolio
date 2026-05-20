@@ -4,11 +4,13 @@ import React, { Suspense, useCallback, useEffect, useRef, useState } from "react
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { Physics } from "@react-three/rapier";
+import { useTranslations } from "next-intl";
 import * as THREE from "three";
 
 import { CameraNavController } from "./_components/navigation/CameraNavController";
 import { IslandSignpostMenu } from "./_components/navigation/IslandSignpostMenu";
 import { PortfolioNavProvider } from "./_components/navigation/PortfolioNavContext";
+import { PerformanceProvider, usePerformanceMode } from "./_components/performance/PerformanceContext";
 import { FantasyIslandFitted, type OrbitControlsInstance } from "./_components/scene/FantasyIslandFitted";
 import { FloatingBoats } from "./_components/scene/FloatingBoat";
 import { ExperienceMilestoneTrail } from "./_components/scene/ExperienceMilestoneTrail";
@@ -28,6 +30,8 @@ import {
 import { PortfolioInfoPanel } from "./_components/ui/PortfolioInfoPanel";
 
 function FantasyIslandCanvasInner() {
+  const tIntro = useTranslations("intro");
+  const { lowPerformance, autoDetected, toggleLowPerformance } = usePerformanceMode();
   const controlsRef = useRef<OrbitControlsInstance | null>(null);
   const oceanAudioRef = useRef<HTMLAudioElement | null>(null);
   const [started, setStarted] = useState(false);
@@ -96,7 +100,8 @@ function FantasyIslandCanvasInner() {
   return (
     <div className="relative h-screen w-full overflow-hidden bg-[#0c0f14]">
       <Canvas
-        shadows
+        shadows={!lowPerformance}
+        dpr={lowPerformance ? [0.75, 1] : [1, 1.75]}
         camera={{ position: [0, 4.5, 14], fov: cameraFov, near: 0.1, far: 2_000_000 }}
         className={[
           started ? "opacity-100 scale-100 blur-0" : "opacity-[0.22] scale-[1.03] blur-[2px]",
@@ -107,18 +112,19 @@ function FantasyIslandCanvasInner() {
           height: "100%",
         }}
         gl={{
-          antialias: true,
+          antialias: !lowPerformance,
+          powerPreference: lowPerformance ? "low-power" : "high-performance",
           toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 1.1,
+          toneMappingExposure: lowPerformance ? 1 : 1.1,
           outputColorSpace: THREE.SRGBColorSpace,
         }}
       >
         <IslandLoadProgress onChange={onLoadChange} />
-        <TimeOfDayLighting />
-        <StartFogReveal active={fogRevealMounted} open={fogRevealOpen} />
+        <TimeOfDayLighting lowPerformance={lowPerformance} />
+        <StartFogReveal active={!lowPerformance && fogRevealMounted} open={fogRevealOpen} />
 
         <Suspense fallback={null}>
-          <SkyBackdrop />
+          <SkyBackdrop lowPerformance={lowPerformance} />
           <OrbitControls
             ref={controlsRef}
             enablePan={false}
@@ -127,8 +133,8 @@ function FantasyIslandCanvasInner() {
           />
           <Physics gravity={[0, -24, 0]} timeStep="vary">
             <CameraNavController controlsRef={controlsRef} enabled={started} />
-            <FantasyIslandFitted controlsRef={controlsRef} />
-            <FloatingBoats />
+            <FantasyIslandFitted controlsRef={controlsRef} lowPerformance={lowPerformance} />
+            <FloatingBoats lowPerformance={lowPerformance} />
             <ProjectBirdFlock />
             <ExperienceMilestoneTrail />
             <IslandSignpostMenu visible={started} scaleMultiplier={signpostScaleMultiplier} />
@@ -142,6 +148,9 @@ function FantasyIslandCanvasInner() {
         <IslandIntroOverlay
           progress={load.progress}
           canStart={canStart}
+          lowPerformance={lowPerformance}
+          autoDetectedPerformance={autoDetected}
+          onTogglePerformance={toggleLowPerformance}
           exiting={introExiting}
           onStart={() => {
             setStarted(true);
@@ -154,7 +163,7 @@ function FantasyIslandCanvasInner() {
         />
       )}
 
-      {fogRevealMounted && (
+      {!lowPerformance && fogRevealMounted && (
         <div
           className={[
             "pointer-events-none absolute inset-0 z-9 transition-[opacity,transform,filter] duration-1200 ease-out",
@@ -169,6 +178,15 @@ function FantasyIslandCanvasInner() {
       )}
 
       <ImmersiveChrome active={started} />
+      {started && (
+        <button
+          type="button"
+          onClick={toggleLowPerformance}
+          className="fixed right-3 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] z-10 rounded-full border border-white/10 bg-black/35 px-3 py-1.5 text-[10px] font-semibold tracking-[0.16em] text-[#d8e8f1] uppercase backdrop-blur-md transition hover:border-[#8fb8c8] hover:text-white sm:right-6 sm:bottom-6"
+        >
+          {lowPerformance ? tIntro("optimizedMode") : tIntro("qualityMode")}
+        </button>
+      )}
       <PortfolioInfoPanel visible={started} />
       <TimeOfDayToggle visible={started} />
       <LanguageSwitcher />
@@ -178,10 +196,12 @@ function FantasyIslandCanvasInner() {
 
 export default function FantasyIslandCanvas() {
   return (
-    <PortfolioNavProvider>
-      <TimeOfDayProvider>
-        <FantasyIslandCanvasInner />
-      </TimeOfDayProvider>
-    </PortfolioNavProvider>
+    <PerformanceProvider>
+      <PortfolioNavProvider>
+        <TimeOfDayProvider>
+          <FantasyIslandCanvasInner />
+        </TimeOfDayProvider>
+      </PortfolioNavProvider>
+    </PerformanceProvider>
   );
 }

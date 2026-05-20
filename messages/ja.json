@@ -8,6 +8,11 @@
   "intro": {
     "brand": "アイランドポートフォリオ",
     "loading": "島を構築中... {pct}%",
+    "loadingHint": "3Dシーン、モデル、海、インタラクティブなポートフォリオ導線を準備しています。",
+    "assetsReady": "アセット",
+    "optimizedMode": "最適化モード",
+    "qualityMode": "品質モード",
+    "auto": "自動",
     "start": "開始"
   },
   "chrome": {
