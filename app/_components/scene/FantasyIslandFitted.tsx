@@ -15,8 +15,10 @@ const COLLIDER_ROOT_NAMES = ["Object_231", "Object_534", "doc", "Object_546", "O
 
 export function FantasyIslandFitted({
   controlsRef,
+  lowPerformance,
 }: {
   controlsRef: React.RefObject<OrbitControlsInstance | null>;
+  lowPerformance: boolean;
 }) {
   const { scene } = useGLTF("/island2.glb") as { scene: THREE.Object3D };
   const { camera } = useThree();
@@ -64,8 +66,8 @@ export function FantasyIslandFitted({
         const mesh = child as THREE.Mesh;
         if (!mesh.isMesh) return;
 
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
+        mesh.castShadow = !lowPerformance;
+        mesh.receiveShadow = !lowPerformance;
         const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
         for (const mat of materials) {
           const m = mat as unknown as { envMapIntensity?: number };
@@ -133,7 +135,7 @@ export function FantasyIslandFitted({
       cancelled = true;
       cancelAnimationFrame(raf);
     };
-  }, [camera, controlsRef, scene, setOrbitTargetY, setSignpostTransform]);
+  }, [camera, controlsRef, lowPerformance, scene, setOrbitTargetY, setSignpostTransform]);
 
   const waterSize = 6000;
   const colliderClonesRef = useRef<THREE.Object3D[] | null>(null);

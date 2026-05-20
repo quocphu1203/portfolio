@@ -11,16 +11,20 @@ const DEFAULT = TIME_PRESETS.afternoon;
 const LERP_SPEED = 1.8;
 const SKY_DISTANCE = 450_000;
 
-export function SkyBackdrop() {
+type SkyBackdropProps = {
+  lowPerformance: boolean;
+};
+
+export function SkyBackdrop({ lowPerformance }: SkyBackdropProps) {
   const { activePreset } = useTimeOfDay();
   const skyRef = useRef<Sky | null>(null);
   const target = activePreset;
 
   const sky = useMemo(() => {
     const skyObject = new Sky();
-    skyObject.scale.setScalar(SKY_DISTANCE);
+    skyObject.scale.setScalar(lowPerformance ? SKY_DISTANCE * 0.6 : SKY_DISTANCE);
     return skyObject;
-  }, []);
+  }, [lowPerformance]);
 
   const cur = useRef({
     sunX: DEFAULT.sunDir[0],

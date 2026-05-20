@@ -13,7 +13,13 @@ const BOAT_BASE_Y = ISLAND_WATER_LEVEL;
 const PATH_SPEED = 0.2;
 const ORBIT_RADIUS = 20;
 
-function SingleBoat({ scene }: { scene: THREE.Object3D }) {
+function SingleBoat({
+  scene,
+  lowPerformance,
+}: {
+  scene: THREE.Object3D;
+  lowPerformance: boolean;
+}) {
   const ref = useRef<THREE.Group>(null);
   const portLightRef = useRef<THREE.PointLight>(null);
   const starboardLightRef = useRef<THREE.PointLight>(null);
@@ -34,12 +40,12 @@ function SingleBoat({ scene }: { scene: THREE.Object3D }) {
     c.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) {
         const mesh = child as THREE.Mesh;
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
+        mesh.castShadow = !lowPerformance;
+        mesh.receiveShadow = !lowPerformance;
       }
     });
     return c;
-  }, [scene]);
+  }, [lowPerformance, scene]);
 
   useFrame((_, delta) => {
     if (!ref.current) return;
@@ -85,11 +91,21 @@ function SingleBoat({ scene }: { scene: THREE.Object3D }) {
         pausedHeadingRef.current = ref.current.rotation.y;
         wasPausedRef.current = true;
       }
-      const anchorWave = Math.sin(bobTRef.current * 2.8) * 0.055 + Math.sin(bobTRef.current * 4.3) * 0.02;
+      const anchorWave =
+        Math.sin(bobTRef.current * 2.8) * 0.055 +
+        Math.sin(bobTRef.current * 4.3) * 0.02;
       const anchorPitch = -0.05 + Math.sin(bobTRef.current * 1.9) * 0.018;
       const anchorRoll = Math.sin(bobTRef.current * 2.5) * 0.035;
-      ref.current.position.set(pausedXZRef.current.x, BOAT_BASE_Y + anchorWave, pausedXZRef.current.y);
-      ref.current.rotation.set(anchorPitch, pausedHeadingRef.current, anchorRoll);
+      ref.current.position.set(
+        pausedXZRef.current.x,
+        BOAT_BASE_Y + anchorWave,
+        pausedXZRef.current.y,
+      );
+      ref.current.rotation.set(
+        anchorPitch,
+        pausedHeadingRef.current,
+        anchorRoll,
+      );
     }
 
     const currentY = ref.current.position.y;
@@ -99,50 +115,60 @@ function SingleBoat({ scene }: { scene: THREE.Object3D }) {
       heading: ref.current.rotation.y,
     });
 
-    const nightBlend = THREE.MathUtils.clamp((activePreset.starsOpacity - 0.3) / 0.7, 0, 1);
+    const nightBlend = THREE.MathUtils.clamp(
+      (activePreset.starsOpacity - 0.3) / 0.7,
+      0,
+      1,
+    );
     const targetSideIntensity = 3.2 * nightBlend;
     const targetMastIntensity = 2.6 * nightBlend;
     const fade = 1 - Math.exp(-6 * delta);
 
     if (portLightRef.current) {
-      portLightRef.current.intensity += (targetSideIntensity - portLightRef.current.intensity) * fade;
+      portLightRef.current.intensity +=
+        (targetSideIntensity - portLightRef.current.intensity) * fade;
     }
     if (starboardLightRef.current) {
       starboardLightRef.current.intensity +=
         (targetSideIntensity - starboardLightRef.current.intensity) * fade;
     }
     if (mastLightRef.current) {
-      mastLightRef.current.intensity += (targetMastIntensity - mastLightRef.current.intensity) * fade;
+      mastLightRef.current.intensity +=
+        (targetMastIntensity - mastLightRef.current.intensity) * fade;
     }
   });
 
   return (
     <group ref={ref} scale={BOAT_SCALE}>
       <primitive object={cloned} dispose={null} />
-      <pointLight
-        ref={portLightRef}
-        position={[-2.6, 4.2, 5.2]}
-        color="#ffd38a"
-        intensity={0}
-        distance={16}
-        decay={1.6}
-      />
-      <pointLight
-        ref={starboardLightRef}
-        position={[2.6, 4.2, 5.2]}
-        color="#ffd38a"
-        intensity={0}
-        distance={16}
-        decay={1.6}
-      />
-      <pointLight
-        ref={mastLightRef}
-        position={[0, 8.6, 0.8]}
-        color="#fff1bf"
-        intensity={0}
-        distance={14}
-        decay={1.7}
-      />
+      {!lowPerformance && (
+        <>
+          <pointLight
+            ref={portLightRef}
+            position={[-2.6, 4.2, 5.2]}
+            color="#ffd38a"
+            intensity={0}
+            distance={16}
+            decay={1.6}
+          />
+          <pointLight
+            ref={starboardLightRef}
+            position={[2.6, 4.2, 5.2]}
+            color="#ffd38a"
+            intensity={0}
+            distance={16}
+            decay={1.6}
+          />
+          <pointLight
+            ref={mastLightRef}
+            position={[0, 8.6, 0.8]}
+            color="#fff1bf"
+            intensity={0}
+            distance={14}
+            decay={1.7}
+          />
+        </>
+      )}
       {boatThoughtVisible && (
         <Html position={[-7.1, 15.4, 1.0]} center distanceFactor={8}>
           <div
@@ -158,12 +184,12 @@ function SingleBoat({ scene }: { scene: THREE.Object3D }) {
   );
 }
 
-export function FloatingBoats() {
+export function FloatingBoats({ lowPerformance }: { lowPerformance: boolean }) {
   const { scene } = useGLTF("/boat.glb") as { scene: THREE.Object3D };
 
   return (
     <group>
-      <SingleBoat scene={scene} />
+      <SingleBoat scene={scene} lowPerformance={lowPerformance} />
     </group>
   );
 }

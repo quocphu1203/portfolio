@@ -9,7 +9,11 @@ import { useTimeOfDay, TIME_PRESETS } from "./TimeOfDayContext";
 const DEFAULT = TIME_PRESETS.afternoon;
 const LERP_SPEED = 1.8;
 
-export function TimeOfDayLighting() {
+type TimeOfDayLightingProps = {
+  lowPerformance: boolean;
+};
+
+export function TimeOfDayLighting({ lowPerformance }: TimeOfDayLightingProps) {
   const { activePreset } = useTimeOfDay();
   const { scene, gl } = useThree();
 
@@ -114,9 +118,9 @@ export function TimeOfDayLighting() {
         position={DEFAULT.dirPos}
         intensity={DEFAULT.dirIntensity}
         color={DEFAULT.dirColor}
-        castShadow
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
+        castShadow={!lowPerformance}
+        shadow-mapSize-width={lowPerformance ? 512 : 2048}
+        shadow-mapSize-height={lowPerformance ? 512 : 2048}
         shadow-camera-left={-50}
         shadow-camera-right={50}
         shadow-camera-top={50}
