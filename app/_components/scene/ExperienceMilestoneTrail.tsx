@@ -30,6 +30,8 @@ const CAT_MOVE_SMOOTHNESS = 14;
 const CAT_ROTATE_SMOOTHNESS = 9;
 const CAT_BODY_DIP_X = -0.12;
 const CAT_HEAD_LIFT_X = 0.18;
+const TORCH_SCALE = 0.35;
+const TORCH_FLAME_OFFSET: [number, number, number] = [0, 0.23, 0];
 const FIXED_TORCH_OFFSETS: [number, number, number][] = [
   [-0.2, 0, -0.12],
   [-0.18, 0, -0.1],
@@ -752,16 +754,16 @@ export function ExperienceMilestoneTrail() {
         return (
           <group key={milestone.id} position={flagPos.toArray()} rotation={[0, flagYaw, 0]}>
             {torchModel && (
-              <>
-                <primitive object={torchModel} scale={0.35} position={torchOffset} />
+              <group position={torchOffset}>
+                <primitive object={torchModel} scale={TORCH_SCALE} />
                 <pointLight
-                  position={[torchOffset[0], 5, torchOffset[2]]}
+                  position={TORCH_FLAME_OFFSET}
                   color={isUnlocked ? "#ffa842" : "#4a6070"}
                   intensity={isUnlocked ? 4.5 : 0.4}
                   distance={isUnlocked ? 5 : 1.5}
                   decay={1.8}
                 />
-              </>
+              </group>
             )}
             <Html position={[0.05, 1.45, 0]} distanceFactor={16} center zIndexRange={[8, 0]}>
               <span

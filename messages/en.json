@@ -39,6 +39,12 @@
     "projectFallbackDescription": "Pick a bird to see project details.",
     "lockedMilestone": "Locked for now, wait until the cat reaches this milestone.",
     "github": "GitHub",
-    "noGithub": "GitHub not available yet"
+    "noGithub": "GitHub not available yet",
+    "projectRole": "Role",
+    "projectMedia": "Screenshots / Demo",
+    "projectTechStack": "Tech stack",
+    "projectLearned": "What I learned",
+    "projectChallenges": "Challenges solved",
+    "projectLinks": "Links"
   }
 }

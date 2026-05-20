@@ -141,12 +141,20 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
         setSelectedProjectId(null);
         return;
       }
-      const p = getCameraPresets(orbitTargetY)[id];
       if (id === "credits") {
         setExperienceJourneyKey((v) => v + 1);
         setExperienceUnlockedCount(0);
         setExperienceCatPose(null);
+        setPendingNav(null);
+        setActiveSection(id);
+        setBoatPaused(false);
+        setBoatThoughtVisible(false);
+        setProjectBirdsVisible(false);
+        setSelectedProjectId(null);
+        return;
       }
+
+      const p = getCameraPresets(orbitTargetY)[id];
       setPendingNav({
         mode: "section",
         sectionId: id,
@@ -208,10 +216,15 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
       by + 2.6,
       bz + outward.y * 9.5 + tangent.y * 2.8
     );
+    const birdPos = new THREE.Vector3(bx, by, bz);
+    const viewDir = birdPos.clone().sub(camPos).normalize();
+    const cameraRight = new THREE.Vector3().crossVectors(viewDir, new THREE.Vector3(0, 1, 0));
+    if (cameraRight.lengthSq() < 0.0001) cameraRight.set(tangent.x, 0, tangent.y);
+    cameraRight.normalize();
     const target = new THREE.Vector3(
-      bx + tangent.x * 1.6,
-      by + 0.7,
-      bz + tangent.y * 1.6
+      bx + cameraRight.x * 3.6,
+      by - 0.6,
+      bz + cameraRight.z * 3.6
     );
 
     setSelectedProjectId(id);

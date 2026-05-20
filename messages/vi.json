@@ -39,6 +39,12 @@
     "projectFallbackDescription": "Chọn một con chim để xem thông tin chi tiết dự án.",
     "lockedMilestone": "Chưa mở khóa, chờ mèo tới cột cờ này.",
     "github": "GitHub",
-    "noGithub": "Chưa có GitHub"
+    "noGithub": "Chưa có GitHub",
+    "projectRole": "Vai trò",
+    "projectMedia": "Screenshot / Demo",
+    "projectTechStack": "Công nghệ",
+    "projectLearned": "Mình học được gì",
+    "projectChallenges": "Vấn đề đã giải quyết",
+    "projectLinks": "Liên kết"
   }
 }

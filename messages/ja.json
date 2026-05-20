@@ -39,6 +39,12 @@
     "projectFallbackDescription": "鳥を選択するとプロジェクト詳細を表示します。",
     "lockedMilestone": "まだロック中です。猫がこの地点に到達するまで待ってください。",
     "github": "GitHub",
-    "noGithub": "GitHubはまだありません"
+    "noGithub": "GitHubはまだありません",
+    "projectRole": "役割",
+    "projectMedia": "スクリーンショット / デモ",
+    "projectTechStack": "技術スタック",
+    "projectLearned": "学んだこと",
+    "projectChallenges": "解決した課題",
+    "projectLinks": "リンク"
   }
 }

@@ -78,6 +78,11 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
   const isProjects = activeSection === "projects";
   const isExperience = activeSection === "credits";
   const selectedProject = projectBirdItems.find((p) => p.id === selectedProjectId) ?? null;
+  const selectedProjectGithubLinks =
+    selectedProject?.githubLinks ?? (selectedProject?.github ? [{ label: t("github"), href: selectedProject.github }] : []);
+  const selectedProjectLinks = selectedProject
+    ? [...selectedProjectGithubLinks, ...(selectedProject.links ?? [])]
+    : [];
   const aboutParagraphsFromLineBreaks = copy.body
     .split(/\n\s*\n|\n/g)
     .map((paragraph) => paragraph.trim())
@@ -127,6 +132,13 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
       <X size={16} />
     </button>
   );
+  const sidePanelPositionClass = isProjects
+    ? "inset-x-3 bottom-3 h-[min(72vh,40rem)] w-auto md:inset-x-auto md:right-4 md:top-1/2 md:bottom-auto md:h-[min(78vh,46rem)] md:w-[min(64vw,54rem)] md:-translate-y-1/2 lg:right-6 lg:w-[min(58vw,58rem)] xl:w-[min(54vw,62rem)]"
+    : isSkills
+      ? "inset-x-3 bottom-3 h-[min(72vh,40rem)] w-auto md:inset-x-auto md:right-4 md:top-1/2 md:bottom-auto md:h-[min(78vh,46rem)] md:w-[min(46vw,42rem)] md:-translate-y-1/2 lg:right-6 lg:w-[min(40vw,42rem)]"
+      : isExperience
+        ? "inset-x-3 bottom-3 h-[min(72vh,40rem)] w-auto md:inset-x-auto md:right-4 md:top-1/2 md:bottom-auto md:h-[min(78vh,46rem)] md:w-[min(54vw,48rem)] md:-translate-y-1/2 lg:right-6 lg:w-[min(48vw,50rem)]"
+        : "inset-x-3 bottom-3 w-auto md:inset-x-auto md:right-4 md:top-1/2 md:bottom-auto md:w-[min(22rem,calc(100vw-3rem))] md:-translate-y-1/2 lg:right-6";
 
   return (
     <AnimatePresence mode="wait">
@@ -207,9 +219,7 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
           key="section-panel-side"
           className={[
             "fixed z-520 cursor-auto",
-            isSkills || isProjects || isExperience
-              ? "inset-x-3 bottom-3 h-[min(72vh,40rem)] w-auto md:inset-x-auto md:right-4 md:top-1/2 md:bottom-auto md:h-[min(78vh,46rem)] md:w-[min(52vw,40rem)] md:-translate-y-1/2 lg:right-6 lg:w-[min(46vw,40rem)]"
-              : "inset-x-3 bottom-3 w-auto md:inset-x-auto md:right-4 md:top-1/2 md:bottom-auto md:w-[min(22rem,calc(100vw-3rem))] md:-translate-y-1/2 lg:right-6",
+            sidePanelPositionClass,
           ].join(" ")}
           role="dialog"
           aria-labelledby="portfolio-panel-title"
@@ -241,8 +251,7 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
                 </h2>
                 <p
                   className={[
-                    "leading-relaxed text-[#dce9f1]",
-                    !isProjects ? "whitespace-pre-line" : "",
+                    "leading-relaxed whitespace-pre-line text-[#dce9f1]",
                     isSkills || isProjects || isExperience ? "mb-6 text-sm sm:mb-7 sm:text-base" : "mb-5 text-sm",
                   ].join(" ")}
                 >
@@ -250,6 +259,108 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
                     ? selectedProject?.description ?? t("projectFallbackDescription")
                     : copy.body}
                 </p>
+                {isProjects && selectedProject && (
+                  <div className="mb-6 space-y-6">
+                    {selectedProject.role && (
+                      <section className="border-t border-[#486877]/55 pt-4">
+                        <h3 className="mb-2 text-xs tracking-[0.18em] text-[#9cc4d4] uppercase">
+                          {t("projectRole")}
+                        </h3>
+                        <p className="text-sm leading-relaxed text-[#c4dbe6]">{selectedProject.role}</p>
+                      </section>
+                    )}
+
+                    {selectedProject.media && selectedProject.media.length > 0 && (
+                      <section className="border-t border-[#486877]/55 pt-4">
+                        <h3 className="mb-3 text-xs tracking-[0.18em] text-[#9cc4d4] uppercase">
+                          {t("projectMedia")}
+                        </h3>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {selectedProject.media.map((item) => {
+                            const content = (
+                              <>
+                                <span className="mb-1 block text-sm font-medium text-[#e3f2fa]">{item.label}</span>
+                                <span className="mb-2 block text-[11px] tracking-[0.12em] text-[#8fb5c7] uppercase">
+                                  {item.type}
+                                </span>
+                                <span className="block text-xs leading-relaxed text-[#b7d0dc]">
+                                  {item.description}
+                                </span>
+                              </>
+                            );
+
+                            return item.href ? (
+                              <a
+                                key={item.label + item.href}
+                                href={item.href}
+                                className="block rounded-lg border border-[#4f7181]/65 bg-[#10232d]/45 p-3 transition hover:border-[#8fb8c8] hover:bg-[#17313d]/65"
+                              >
+                                {content}
+                              </a>
+                            ) : (
+                              <div
+                                key={item.label}
+                                className="rounded-lg border border-[#3d4e59]/70 bg-[#0d1c24]/45 p-3"
+                              >
+                                {content}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </section>
+                    )}
+
+                    {selectedProject.techStack && selectedProject.techStack.length > 0 && (
+                      <section className="border-t border-[#486877]/55 pt-4">
+                        <h3 className="mb-3 text-xs tracking-[0.18em] text-[#9cc4d4] uppercase">
+                          {t("projectTechStack")}
+                        </h3>
+                        <ul className="flex flex-wrap gap-2">
+                          {selectedProject.techStack.map((tech) => (
+                            <li
+                              key={tech}
+                              className="rounded-full border border-[#5f8495]/70 bg-[#17313d]/55 px-2.5 py-1 text-xs text-[#d1e7f2]"
+                            >
+                              {tech}
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    )}
+
+                    {selectedProject.learned && selectedProject.learned.length > 0 && (
+                      <section className="border-t border-[#486877]/55 pt-4">
+                        <h3 className="mb-3 text-xs tracking-[0.18em] text-[#9cc4d4] uppercase">
+                          {t("projectLearned")}
+                        </h3>
+                        <ul className="space-y-2 text-sm leading-relaxed text-[#c4dbe6]">
+                          {selectedProject.learned.map((item) => (
+                            <li key={item} className="flex gap-2">
+                              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#9ad0e4]" />
+                              <span>{item}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    )}
+
+                    {selectedProject.challenges && selectedProject.challenges.length > 0 && (
+                      <section className="border-t border-[#486877]/55 pt-4">
+                        <h3 className="mb-3 text-xs tracking-[0.18em] text-[#9cc4d4] uppercase">
+                          {t("projectChallenges")}
+                        </h3>
+                        <ul className="space-y-2 text-sm leading-relaxed text-[#c4dbe6]">
+                          {selectedProject.challenges.map((item) => (
+                            <li key={item} className="flex gap-2">
+                              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#dca869]" />
+                              <span>{item}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    )}
+                  </div>
+                )}
                 {isExperience && (
                   <ol className="mb-6 space-y-4">
                     {experienceMilestones.map((milestone, index) => (
@@ -266,7 +377,9 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
                             <>
                               <h3 className="text-lg font-medium text-[#e7f4fb]">{milestone.title}</h3>
                               <p className="mb-2 text-sm text-[#b6d3df]">{milestone.company}</p>
-                              <p className="mb-3 text-sm leading-relaxed text-[#c4dbe6]">{milestone.summary}</p>
+                              <p className="mb-3 whitespace-pre-line text-sm leading-relaxed text-[#c4dbe6]">
+                                {milestone.summary}
+                              </p>
                               <ul className="flex flex-wrap gap-2">
                                 {milestone.skills.map((skill) => (
                                   <li
@@ -305,13 +418,19 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
                 )}
                 {isProjects && (
                   <div className="mb-5 flex flex-wrap gap-2">
-                    {selectedProject?.github ? (
-                      <a
-                        href={selectedProject.github}
-                        className="inline-block rounded-full border border-[#4a6a78]/80 px-3.5 py-1.5 text-sm text-[#b8d0dc] transition hover:border-[#8fb8c8] hover:text-[#e8eef2]"
-                      >
-                        {t("github")}
-                      </a>
+                    <h3 className="basis-full text-xs tracking-[0.18em] text-[#9cc4d4] uppercase">
+                      {t("projectLinks")}
+                    </h3>
+                    {selectedProjectLinks.length > 0 ? (
+                      selectedProjectLinks.map((link) => (
+                        <a
+                          key={link.href}
+                          href={link.href}
+                          className="inline-block rounded-full border border-[#4a6a78]/80 px-3.5 py-1.5 text-sm text-[#b8d0dc] transition hover:border-[#8fb8c8] hover:text-[#e8eef2]"
+                        >
+                          {link.label}
+                        </a>
+                      ))
                     ) : (
                       <span className="inline-block rounded-full border border-[#3d4e59]/70 px-3.5 py-1.5 text-sm text-[#8899a3]">
                         {t("noGithub")}
