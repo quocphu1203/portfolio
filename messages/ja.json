@@ -17,7 +17,7 @@
   },
   "chrome": {
     "hintControls": "ドラッグで回転・スクロールでズーム",
-    "hintProjects": "Wingullをタップしてプロジェクト詳細を見る",
+    "hintProjects": "キャモメをタップしてプロジェクト詳細を見る",
     "hintEscBack": "Escでメイン画面に戻る"
   },
   "time": {
