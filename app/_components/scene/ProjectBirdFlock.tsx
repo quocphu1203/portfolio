@@ -5,6 +5,7 @@ import { Html, useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { useLocale } from "next-intl";
 import * as THREE from "three";
+import { SkeletonUtils } from "three-stdlib";
 
 import type { AppLocale } from "../../../mock/locale";
 import { getProjectBirdItems } from "../../../mock/projectsData";
@@ -19,26 +20,38 @@ type BirdConfig = {
 
 const BIRD_SCALE = 0.3;
 const ENTRANCE_DURATION = 1.05;
+const WING_PHASE_OFFSET = 0.2;
+const CLIP_NAME = "FlapGlide";
 
 function easeOutCubic(t: number) {
   return 1 - Math.pow(1 - t, 3);
 }
 
 function cloneBird(scene: THREE.Object3D) {
-  const clone = scene.clone(true);
+  // SkeletonUtils.clone giữ liên kết lưới với xương cho SkinnedMesh
+  const clone = SkeletonUtils.clone(scene);
   clone.traverse((child) => {
     const mesh = child as THREE.Mesh;
     if (!mesh.isMesh) return;
     mesh.castShadow = true;
     mesh.receiveShadow = false;
+    mesh.frustumCulled = false;
   });
   return clone;
 }
 
 export function ProjectBirdFlock() {
   const locale = useLocale() as AppLocale;
-  const { scene } = useGLTF("/wingull.glb") as { scene: THREE.Object3D };
-  const { activeSection, projectBirdsVisible, selectedProjectId, focusProjectBird } = usePortfolioNav();
+  const { scene, animations } = useGLTF("/wingull.glb") as unknown as {
+    scene: THREE.Object3D;
+    animations: THREE.AnimationClip[];
+  };
+  const {
+    activeSection,
+    projectBirdsVisible,
+    selectedProjectId,
+    focusProjectBird,
+  } = usePortfolioNav();
   const projectBirdItems = getProjectBirdItems(locale);
   const timeRef = useRef(0);
   const birdRefs = useRef<(THREE.Group | null)[]>([]);
@@ -55,13 +68,41 @@ export function ProjectBirdFlock() {
         angleOffset: (i - (projectBirdItems.length - 1) / 2) * 0.28,
         liftOffset: i * 0.7,
       })),
-    [projectBirdItems]
+    [projectBirdItems],
   );
 
   const birds = useMemo(
     () => projectBirdItems.map(() => cloneBird(scene)),
-    [scene, projectBirdItems]
+    [scene, projectBirdItems],
   );
+
+  const mixersRef = useRef<THREE.AnimationMixer[]>([]);
+
+  useEffect(() => {
+    const clip =
+      THREE.AnimationClip.findByName(animations, CLIP_NAME) ?? animations[0];
+    if (!clip) return;
+
+    const mixers = birds.map((bird, i) => {
+      const mixer = new THREE.AnimationMixer(bird);
+      const action = mixer.clipAction(clip);
+      action.reset();
+      action.setLoop(THREE.LoopRepeat, Infinity);
+      action.time = (i * WING_PHASE_OFFSET) % clip.duration;
+      action.setEffectiveTimeScale(1);
+      action.play();
+      return mixer;
+    });
+    mixersRef.current = mixers;
+
+    return () => {
+      mixers.forEach((mixer, i) => {
+        mixer.stopAllAction();
+        mixer.uncacheRoot(birds[i]);
+      });
+      mixersRef.current = [];
+    };
+  }, [animations, birds]);
 
   const focusProjectByIndex = useCallback(
     (index: number) => {
@@ -81,11 +122,15 @@ export function ProjectBirdFlock() {
         ]);
       }
     },
-    [projectBirdItems, configs, focusProjectBird]
+    [projectBirdItems, configs, focusProjectBird],
   );
 
   useFrame((_, delta) => {
     if (!projectBirdsVisible) return;
+
+    // Phát animation đập cánh và lượn
+    mixersRef.current.forEach((mixer) => mixer.update(delta));
+
     timeRef.current += delta;
     const t = timeRef.current;
 
@@ -109,7 +154,10 @@ export function ProjectBirdFlock() {
       const flockLift = Math.sin(t * 0.58 + cfg.liftOffset);
       const y = cfg.baseHeight + flockLift * (isSelected ? 0.12 : 0.9);
 
-      const spawn = Math.min(1, Math.max(0, (t - i * 0.18) / ENTRANCE_DURATION));
+      const spawn = Math.min(
+        1,
+        Math.max(0, (t - i * 0.18) / ENTRANCE_DURATION),
+      );
       const k = easeOutCubic(spawn);
 
       bird.position.set(x, y, z);
@@ -120,14 +168,15 @@ export function ProjectBirdFlock() {
       }
       const dx = x - prev.x;
       const dz = z - prev.z;
-      const travelYaw = Math.sqrt(dx * dx + dz * dz) > 0.0001 ? Math.atan2(dx, dz) : -angle + Math.PI / 2;
-      const liftPitch = -0.06 + Math.sin(t * 0.9 + cfg.liftOffset) * (isSelected ? 0.01 : 0.03);
-      const bankRoll = Math.sin(t * 0.9 + cfg.liftOffset + 0.5) * (isSelected ? 0.02 : 0.09);
-      bird.rotation.set(
-        liftPitch,
-        travelYaw,
-        bankRoll
-      );
+      const travelYaw =
+        Math.sqrt(dx * dx + dz * dz) > 0.0001
+          ? Math.atan2(dx, dz)
+          : -angle + Math.PI / 2;
+      const liftPitch =
+        -0.06 + Math.sin(t * 0.9 + cfg.liftOffset) * (isSelected ? 0.01 : 0.03);
+      const bankRoll =
+        Math.sin(t * 0.9 + cfg.liftOffset + 0.5) * (isSelected ? 0.02 : 0.09);
+      bird.rotation.set(liftPitch, travelYaw, bankRoll);
       prev.set(x, y, z);
       bird.scale.setScalar(BIRD_SCALE * Math.max(0.0001, k));
       bird.visible = spawn > 0.01;
