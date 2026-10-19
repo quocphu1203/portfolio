@@ -63,5 +63,15 @@
     "rainAuto": "雨: 自動",
     "rainOn": "雨: オン",
     "rainOff": "雨: オフ"
+  },
+  "skillCrates": {
+    "code": "言語",
+    "frameworks": "フレームワーク",
+    "data": "データベース",
+    "tools": "ツール・語学",
+    "hint": "スキルをクリックすると、そのスキルを使ったプロジェクトが表示され、その鳥が船まで飛んできます。",
+    "projectsCount": "{count}件のプロジェクト",
+    "noProjects": "このスキルのプロジェクトの鳥はまだいません",
+    "birdsComing": "{skill}を使ったプロジェクト（クリックで開く）："
   }
 }

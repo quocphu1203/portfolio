@@ -63,5 +63,15 @@
     "rainAuto": "Rain: auto",
     "rainOn": "Rain: on",
     "rainOff": "Rain: off"
+  },
+  "skillCrates": {
+    "code": "Languages",
+    "frameworks": "Frameworks",
+    "data": "Databases",
+    "tools": "Tools & Language",
+    "hint": "Click a skill to see the projects that use it: their birds fly over to the boat.",
+    "projectsCount": "{count, plural, one {# project} other {# projects}}",
+    "noProjects": "No project bird for this skill yet",
+    "birdsComing": "Projects using {skill} (click to open):"
   }
 }

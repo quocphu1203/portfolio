@@ -146,3 +146,12 @@
     @apply font-sans;
   }
 }
+@keyframes cat-tail {
+  0%,
+  100% {
+    transform: rotate(-14deg);
+  }
+  50% {
+    transform: rotate(16deg);
+  }
+}

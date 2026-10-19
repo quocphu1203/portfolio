@@ -63,5 +63,15 @@
     "rainAuto": "Mưa: tự động",
     "rainOn": "Mưa: bật",
     "rainOff": "Mưa: tắt"
+  },
+  "skillCrates": {
+    "code": "Ngôn ngữ",
+    "frameworks": "Framework",
+    "data": "Cơ sở dữ liệu",
+    "tools": "Công cụ & Ngoại ngữ",
+    "hint": "Bấm vào một kỹ năng để xem các dự án dùng kỹ năng đó: chim của các dự án sẽ bay tới thuyền.",
+    "projectsCount": "{count} dự án",
+    "noProjects": "Chưa có chim dự án nào cho kỹ năng này",
+    "birdsComing": "Dự án dùng {skill} (bấm để mở):"
   }
 }

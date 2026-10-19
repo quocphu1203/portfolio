@@ -6,6 +6,9 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { ISLAND_WATER_LEVEL } from "./islandSceneConstants";
 import { usePortfolioNav } from "../navigation/PortfolioNavContext";
+import { useReducedMotion } from "../performance/useReducedMotion";
+import { SKILL_GROUPS } from "../../../mock/skillsData";
+import { SkillCrates } from "./SkillCrates";
 import { useTimeOfDay } from "../time/TimeOfDayContext";
 
 const BOAT_SCALE = 0.3;
@@ -32,7 +35,11 @@ function SingleBoat({
   const wasPausedRef = useRef(false);
   const pausedXZRef = useRef(new THREE.Vector2());
   const pausedHeadingRef = useRef(0);
-  const { setBoatPose, boatPaused, boatThoughtVisible } = usePortfolioNav();
+  const { setBoatPose, boatPaused, boatThoughtVisible, activeSection, highlightedSkill } = usePortfolioNav();
+  const reducedMotion = useReducedMotion();
+  const highlightGroup = highlightedSkill
+    ? (SKILL_GROUPS.find((g) => g.items.some((item) => item.id === highlightedSkill))?.id ?? null)
+    : null;
   const { activePreset } = useTimeOfDay();
 
   const cloned = useMemo(() => {
@@ -141,6 +148,7 @@ function SingleBoat({
   return (
     <group ref={ref} scale={BOAT_SCALE}>
       <primitive object={cloned} dispose={null} />
+      <SkillCrates open={activeSection === "articles"} highlightGroup={highlightGroup} reducedMotion={reducedMotion} />
       {!lowPerformance && (
         <>
           <pointLight
@@ -169,7 +177,8 @@ function SingleBoat({
           />
         </>
       )}
-      {boatThoughtVisible && (
+      {/* Once the camera has arrived the roof crates take over (the bubble would cover them). */}
+      {boatThoughtVisible && activeSection !== "articles" && (
         <Html position={[-7.1, 15.4, 1.0]} center distanceFactor={8}>
           <div
             ref={bubbleRef}

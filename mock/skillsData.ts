@@ -70,3 +70,101 @@ const SKILLS_SECTION_BY_LOCALE: Record<AppLocale, InfoSection> = {
 export function getSkillsSection(locale: AppLocale): InfoSection {
   return SKILLS_SECTION_BY_LOCALE[locale];
 }
+
+/* ------------------------------------------------------------------------------------------------
+ * Structured skills (one cargo crate on the boat per group) and the skill -> project link.
+ * Skill names are the ones listed in the Skills text above; group titles live in messages (skillCrates.*).
+ * ---------------------------------------------------------------------------------------------- */
+
+export type SkillGroupId = "code" | "frameworks" | "data" | "tools";
+
+export type SkillItem = {
+  id: string;
+  label: string;
+  /**
+   * Matched (case-insensitive) against each project's `techStack` entries in projectsData.ts.
+   * A trailing "*" means prefix match (e.g. "firebase*" matches "Firebase Auth").
+   */
+  usedIn: string[];
+};
+
+export type SkillGroup = {
+  id: SkillGroupId;
+  /** Crate accent colour (lid band, gem, dialog section). */
+  color: string;
+  icon: string;
+  items: SkillItem[];
+};
+
+export const SKILL_GROUPS: SkillGroup[] = [
+  {
+    id: "code",
+    color: "#e0a458",
+    icon: "</>",
+    items: [
+      { id: "cpp", label: "C++", usedIn: [] },
+      { id: "java", label: "Java", usedIn: [] },
+      { id: "php", label: "PHP", usedIn: ["php", "laravel"] },
+      { id: "kotlin", label: "Kotlin", usedIn: ["kotlin"] },
+      // JavaScript is not listed explicitly; assumed for React / React Native / Next.js / Vite projects.
+      { id: "javascript", label: "JavaScript", usedIn: ["javascript", "react", "react native", "next.js", "vite"] },
+      { id: "typescript", label: "TypeScript", usedIn: ["typescript"] },
+      // Assumed: the TensorFlow / TFLite sentiment model was trained in Python.
+      { id: "python", label: "Python", usedIn: ["python", "tensorflow", "tflite"] },
+    ],
+  },
+  {
+    id: "frameworks",
+    color: "#6fc3df",
+    icon: "{ }",
+    items: [
+      { id: "laravel", label: "Laravel", usedIn: ["laravel"] },
+      { id: "reactjs", label: "ReactJS", usedIn: ["react", "next.js"] },
+      { id: "react-native", label: "React Native", usedIn: ["react native"] },
+      { id: "nextjs", label: "Next.js", usedIn: ["next.js"] },
+    ],
+  },
+  {
+    id: "data",
+    color: "#8fd18b",
+    icon: "DB",
+    items: [
+      { id: "sqlserver", label: "SQL Server", usedIn: ["sql server", "microsoft sql server"] },
+      { id: "mysql", label: "MySQL", usedIn: ["mysql"] },
+      { id: "firebase", label: "Firebase", usedIn: ["firebase*", "firestore"] },
+      { id: "postgresql", label: "PostgreSQL", usedIn: ["postgresql"] },
+    ],
+  },
+  {
+    id: "tools",
+    color: "#d58ad6",
+    icon: "✦",
+    items: [
+      { id: "jlpt", label: "JLPT N2", usedIn: [] },
+      { id: "word", label: "Word", usedIn: [] },
+      { id: "excel", label: "Excel", usedIn: [] },
+      { id: "powerpoint", label: "PowerPoint", usedIn: [] },
+    ],
+  },
+];
+
+function techMatches(rules: string[], tech: string) {
+  const value = tech.trim().toLowerCase();
+  return rules.some((rule) => (rule.endsWith("*") ? value.startsWith(rule.slice(0, -1)) : value === rule));
+}
+
+/** Project ids (shared across locales) whose tech stack uses the given skill. */
+export function projectIdsForSkill(
+  skillId: string,
+  projects: { id: string; techStack?: string[] }[]
+): string[] {
+  const skill = SKILL_GROUPS.flatMap((g) => g.items).find((s) => s.id === skillId);
+  if (!skill || skill.usedIn.length === 0) return [];
+  return projects.filter((p) => (p.techStack ?? []).some((tech) => techMatches(skill.usedIn, tech))).map((p) => p.id);
+}
+
+/** The Skills text without its first block (the skill list, which the crates / chips now show). */
+export function getSkillsExtraText(locale: AppLocale) {
+  const blocks = SKILLS_SECTION_BY_LOCALE[locale].body.split(/\n\s*\n/);
+  return blocks.slice(1).join("\n\n").trim();
+}

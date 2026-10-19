@@ -50,6 +50,22 @@ type PortfolioNavContextValue = {
   exploreMode: boolean;
   enterExplore: () => void;
   exitExplore: () => void;
+  /**
+   * Intro (About): "approach" while the cat runs into view and sits (camera frames it), then "open" with the
+   * dialog shown. Skipped (dialog opens directly) when the cat is busy (explore mode / experience journey).
+   */
+  introPhase: "idle" | "approach" | "open";
+  /** Camera framing for the intro cat (called by the cat once it picked its spot). */
+  introFrame: (cameraPos: THREE.Vector3, target: THREE.Vector3) => void;
+  /** The cat has arrived and sat down (or timed out): open the About dialog. */
+  introReady: () => void;
+  /** Skill picked in the Skills dialog: birds whose projects use it fly over to the boat. */
+  highlightedSkill: string | null;
+  setHighlightedSkill: (id: string | null) => void;
+  /** Open a project from the Skills dialog: go to the projects view, then the flock selects that bird. */
+  openProjectFromSkill: (projectId: string) => void;
+  projectFocusRequest: string | null;
+  clearProjectFocusRequest: () => void;
 };
 
 const PortfolioNavContext = createContext<PortfolioNavContextValue | null>(null);
@@ -78,6 +94,9 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
   } | null>(null);
   const [exploreMode, setExploreMode] = useState(false);
   const [projectExit, setProjectExit] = useState<"idle" | "takingOff" | "returning">("idle");
+  const [introPhase, setIntroPhase] = useState<"idle" | "approach" | "open">("idle");
+  const [highlightedSkill, setHighlightedSkill] = useState<string | null>(null);
+  const [projectFocusRequest, setProjectFocusRequest] = useState<string | null>(null);
   const seagullAudioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
@@ -94,11 +113,21 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
 
   const requestNav = useCallback(
     (id: NavId) => {
+      setHighlightedSkill(null);
+      if (id === "about" && exploreMode) {
+        // The player is driving the cat: keep explore mode and just show the dialog.
+        setIntroPhase("idle");
+        setActiveSection(id);
+        return;
+      }
+      // Mid-journey on the experience trail the cat is busy too: open the dialog directly.
+      const catBusy = activeSection === "credits";
       setExploreMode(false);
       setProjectExit("idle");
+      setIntroPhase(id === "about" && !catBusy ? "approach" : "idle");
       if (id === "about") {
         setPendingNav(null);
-        setActiveSection(id);
+        setActiveSection(catBusy ? id : null);
         setBoatPaused(false);
         setBoatThoughtVisible(false);
         setProjectBirdsVisible(false);
@@ -137,12 +166,13 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
         const camZ = bz + outward.y * 13.5 + tangent.y * 4.2;
         const camPos = new THREE.Vector3(
           camX,
-          by + 4.6,
+          by + 5.2,
           camZ
         );
         const target = new THREE.Vector3(
           bx + tangent.x * 3.8,
-          by + 1.5,
+          // Aim a little higher so the roof crates and the visiting birds above them stay in frame.
+          by + 3.0,
           bz + tangent.y * 3.8
         );
         setPendingNav({
@@ -184,12 +214,14 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
       setProjectBirdsVisible(false);
       setSelectedProjectId(null);
     },
-    [boatPose, orbitTargetY]
+    [boatPose, orbitTargetY, exploreMode, activeSection]
   );
 
   const flyToMenu = useCallback(() => {
     setExploreMode(false);
     setProjectExit("idle");
+    setIntroPhase("idle");
+    setHighlightedSkill(null);
     const p = getCameraPresets(orbitTargetY).menu;
     setPendingNav({
       mode: "menu",
@@ -208,6 +240,8 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
   const flyToDefault = useCallback(() => {
     setExploreMode(false);
     setProjectExit("idle");
+    setIntroPhase("idle");
+    setHighlightedSkill(null);
     const p = getCameraPresets(orbitTargetY).default;
     setPendingNav({
       mode: "menu",
@@ -247,6 +281,8 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
   }, [orbitTargetY]);
 
   const enterExplore = useCallback(() => {
+    setIntroPhase("idle");
+    setHighlightedSkill(null);
     setPendingNav(null);
     setActiveSection(null);
     setBoatPaused(false);
@@ -260,6 +296,32 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
   const exitExplore = useCallback(() => {
     setExploreMode(false);
     setActiveSection(null);
+  }, []);
+
+  const openProjectFromSkill = useCallback(
+    (projectId: string) => {
+      requestNav("projects");
+      setProjectFocusRequest(projectId);
+    },
+    [requestNav]
+  );
+
+  const clearProjectFocusRequest = useCallback(() => setProjectFocusRequest(null), []);
+
+  const introFrame = useCallback((cameraPos: THREE.Vector3, target: THREE.Vector3) => {
+    setPendingNav({ mode: "menu", cameraPos: cameraPos.clone(), target: target.clone() });
+  }, []);
+
+  const introPhaseRef = useRef(introPhase);
+  useEffect(() => {
+    introPhaseRef.current = introPhase;
+  }, [introPhase]);
+
+  const introReady = useCallback(() => {
+    if (introPhaseRef.current !== "approach") return;
+    introPhaseRef.current = "open";
+    setIntroPhase("open");
+    setActiveSection("about");
   }, []);
 
   const focusProjectBird = useCallback((id: string, position: [number, number, number], options?: { perch?: boolean }) => {
@@ -290,6 +352,8 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
 
     setExploreMode(false);
     setProjectExit("idle");
+    setIntroPhase("idle");
+    setHighlightedSkill(null);
     setSelectedProjectId(id);
     setPendingNav({
       mode: "section",
@@ -344,6 +408,14 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
       projectExit,
       closeProject,
       returnToOverview,
+      introPhase,
+      introFrame,
+      introReady,
+      highlightedSkill,
+      setHighlightedSkill,
+      openProjectFromSkill,
+      projectFocusRequest,
+      clearProjectFocusRequest,
     }),
     [
       orbitTargetY,
@@ -369,6 +441,13 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
       projectExit,
       closeProject,
       returnToOverview,
+      introPhase,
+      introFrame,
+      introReady,
+      highlightedSkill,
+      openProjectFromSkill,
+      projectFocusRequest,
+      clearProjectFocusRequest,
     ]
   );
 

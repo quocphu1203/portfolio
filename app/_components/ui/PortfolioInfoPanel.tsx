@@ -11,10 +11,16 @@ import { getExperienceMilestones } from "../../../mock/experienceData";
 import type { AppLocale } from "../../../mock/locale";
 import { getNavCopy, getProjectBirdItems, type NavId } from "../navigation/portfolioNavData";
 import { usePortfolioNav } from "../navigation/PortfolioNavContext";
+import { useReducedMotion } from "../performance/useReducedMotion";
+import { getSkillsExtraText } from "../../../mock/skillsData";
+import { AboutTypewriter } from "./AboutTypewriter";
+import { CatAvatar } from "./CatAvatar";
+import { SkillCrateList } from "./SkillCrateList";
 
 export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
   const locale = useLocale() as AppLocale;
   const t = useTranslations("panel");
+  const reducedMotion = useReducedMotion();
   const {
     activeSection,
     flyToDefault,
@@ -155,7 +161,7 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
   return (
     <AnimatePresence mode="wait">
       {isAbout ? (
-        <Dialog open={isAbout} onOpenChange={(open) => !open && flyToDefault()}>
+        <Dialog open={isAbout} onOpenChange={(open) => !open && handleClose()}>
           <DialogContent
             showCloseButton={false}
             className="h-[74vh] w-[94vw] max-h-[74vh] max-w-[94vw] grid-rows-[minmax(0,1fr)] gap-0 overflow-hidden rounded-2xl border border-[#87a9bb]/50 bg-[#0a1118]/78 p-0 shadow-[0_20px_80px_rgba(0,0,0,0.55)] backdrop-blur-2xl sm:h-[72vh] sm:w-[90vw] sm:max-w-[90vw] md:w-[72vw] md:max-w-[72vw] xl:h-[70vh] xl:w-[66vw] xl:max-w-[66vw]"
@@ -177,7 +183,9 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
               className="flex h-full min-h-0 flex-col"
             >
               <div className="shrink-0 px-4 pb-4 pt-12 sm:px-6 sm:pt-12 md:px-8 md:pt-14 lg:px-10">
-                <div className="mx-auto w-full">
+                <div className="mx-auto flex w-full items-start gap-4">
+                  <CatAvatar reducedMotion={reducedMotion} className="mt-1" />
+                  <div className="min-w-0">
                   <p className="mb-2 text-[10px] tracking-[0.3em] text-[#c5d8e3]/95 uppercase">{t("island")}</p>
                   <DialogTitle
                     id="portfolio-panel-title"
@@ -185,27 +193,17 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
                   >
                     {copy.title}
                   </DialogTitle>
+                  </div>
                 </div>
               </div>
 
               <ScrollArea className="min-h-0 flex-1">
                 <div className="px-4 sm:px-6 md:px-8 lg:px-10">
                   <div className="mx-auto w-full">
-                    <DialogDescription className="max-w-none text-[1rem] leading-[1.9] text-[#e6f0f7] sm:text-[1.03rem] sm:leading-[1.92]">
+                    <DialogDescription asChild className="max-w-none text-[1rem] leading-[1.9] text-[#e6f0f7] sm:text-[1.03rem] sm:leading-[1.92]">
+                      <div>
                       <div className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(18rem,0.75fr)] lg:gap-8">
-                        <div className="space-y-5 text-pretty md:space-y-6">
-                          {aboutParagraphs.map((paragraph, index) => (
-                            <p
-                              key={paragraph}
-                              className={[
-                                "text-[#e2edf5]/95",
-                                index === 0 ? "text-[1.06rem] leading-[1.92] text-[#f2f8fc]" : "",
-                              ].join(" ")}
-                            >
-                              {paragraph}
-                            </p>
-                          ))}
-                        </div>
+                        <AboutTypewriter paragraphs={aboutParagraphs} reducedMotion={reducedMotion} />
 
                         <aside className="space-y-4">
                           {copy.highlights && copy.highlights.length > 0 && (
@@ -239,6 +237,7 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
                             </div>
                           )}
                         </aside>
+                      </div>
                       </div>
                     </DialogDescription>
                   </div>
@@ -302,6 +301,7 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
                 >
                   {isProjects ? selectedProject?.name ?? t("projectsFallbackTitle") : copy.title}
                 </h2>
+                {isSkills && <SkillCrateList locale={locale} reducedMotion={reducedMotion} />}
                 <p
                   className={[
                     "leading-relaxed whitespace-pre-line text-[#dce9f1]",
@@ -310,7 +310,9 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
                 >
                   {isProjects
                     ? selectedProject?.description ?? t("projectFallbackDescription")
-                    : copy.body}
+                    : isSkills
+                      ? getSkillsExtraText(locale)
+                      : copy.body}
                 </p>
                 {isProjects && selectedProject && (
                   <div className="mb-6 space-y-6">

@@ -9,6 +9,7 @@ import { SkeletonUtils } from "three-stdlib";
 
 import type { AppLocale } from "../../../mock/locale";
 import { getProjectBirdItems } from "../../../mock/projectsData";
+import { projectIdsForSkill } from "../../../mock/skillsData";
 import { birdFollowRuntime } from "../navigation/birdFollowRuntime";
 import { usePortfolioNav } from "../navigation/PortfolioNavContext";
 import { resolveWaterLevel } from "./waterLevel";
@@ -68,6 +69,13 @@ const FLIGHT_CLEARANCE = 0.7;
 const WATER_CLEARANCE = 1.2;
 const PERCH_MIN_ABOVE_WATER = 0.3;
 const MAX_BANK = 0.55;
+/** Skill highlight: matching birds fly from the sky to a small circle over the boat (and back out). */
+const SKILL_VISIT_SECONDS = 1.6;
+const SKILL_ORBIT_RADIUS = 2.5;
+/** Above the cabin-roof crates (roof is ~4.3 above the boat origin), so birds never hide the boat. */
+const SKILL_ORBIT_HEIGHT = 5.5;
+const SKILL_ORBIT_SPEED = 0.85;
+const SKILL_HIGHLIGHT_SCALE = 1.15;
 const UP = new THREE.Vector3(0, 1, 0);
 
 function easeOutCubic(t: number) {
@@ -161,8 +169,19 @@ export function ProjectBirdFlock() {
     focusProjectBird,
     projectExit,
     returnToOverview,
+    activeSection,
+    highlightedSkill,
+    boatPose,
+    projectFocusRequest,
+    clearProjectFocusRequest,
   } = usePortfolioNav();
   const projectBirdItems = getProjectBirdItems(locale);
+  // Skills dialog open (camera at the boat): only birds of projects using the picked skill come over.
+  const skillMode = !projectBirdsVisible && activeSection === "articles";
+  const skillProjectIds = useMemo(
+    () => (highlightedSkill ? projectIdsForSkill(highlightedSkill, projectBirdItems) : []),
+    [highlightedSkill, projectBirdItems],
+  );
   const timeRef = useRef(0);
   const birdRefs = useRef<(THREE.Group | null)[]>([]);
   const bodyRefs = useRef<(THREE.Group | null)[]>([]);
@@ -170,8 +189,18 @@ export function ProjectBirdFlock() {
   const actionSetsRef = useRef<ActionSet[]>([]);
   const footOffsetRef = useRef(0.12);
   const wasVisibleRef = useRef(false);
+  /** Seconds since the flock became visible (a focus request from the Skills dialog waits for the entrance). */
+  const visibleForRef = useRef(0);
   const exitRef = useRef({ handled: false, bird: -1 });
   const envRef = useRef({ ground: [] as THREE.Mesh[], water: 0, refreshIn: 0 });
+  const visitRef = useRef({
+    time: 0,
+    w: [] as number[],
+    prev: [] as THREE.Vector3[],
+    has: [] as boolean[],
+    yaw: [] as number[],
+    roll: [] as number[],
+  });
   const toolsRef = useRef({
     ray: new THREE.Raycaster(),
     down: new THREE.Vector3(0, -1, 0),
@@ -426,8 +455,81 @@ export function ProjectBirdFlock() {
     }
   };
 
+  /** Skill highlight flight around the boat (birds not used by the skill stay away / fly off). */
+  const stepSkillVisit = (rawDelta: number) => {
+    const boat = boatPose?.position;
+    if (!boat) return;
+    const delta = Math.min(rawDelta, 0.1);
+    const v = visitRef.current;
+    v.time += delta;
+    const env = envRef.current;
+    env.refreshIn -= delta;
+    refreshEnv();
+    const tools = toolsRef.current;
+    const outward = tools.a.set(boat[0], 0, boat[2]);
+    if (outward.lengthSq() < 1e-6) outward.set(1, 0, 0);
+    outward.normalize();
+    // The boat is framed left of the dialog: shift the circle a bit toward screen centre (camera right).
+    camera.getWorldDirection(tools.tangent);
+    const shift = tools.tangent.set(-tools.tangent.z, 0, tools.tangent.x).normalize().multiplyScalar(1.4);
+    const cx = boat[0] + shift.x;
+    const cz = boat[2] + shift.z;
+    birdRefs.current.forEach((bird, i) => {
+      if (!bird) return;
+      const project = projectBirdItems[i];
+      if (!project) return;
+      const want = skillProjectIds.includes(project.id) ? 1 : 0;
+      const w = THREE.MathUtils.clamp((v.w[i] ?? 0) + Math.sign(want - (v.w[i] ?? 0)) * (delta / SKILL_VISIT_SECONDS), 0, 1);
+      v.w[i] = w;
+      if (w <= 0.001) {
+        bird.visible = false;
+        v.has[i] = false;
+        return;
+      }
+      mixersRef.current[i]?.update(delta);
+      const angle = v.time * SKILL_ORBIT_SPEED + i * 1.257;
+      const orbit = tools.pos.set(
+        cx + Math.cos(angle) * SKILL_ORBIT_RADIUS,
+        boat[1] + SKILL_ORBIT_HEIGHT + Math.sin(v.time * 1.3 + i) * 0.25,
+        cz + Math.sin(angle) * SKILL_ORBIT_RADIUS,
+      );
+      // Arrive from (and leave to) high in the sky on the ocean side of the boat.
+      const sky = tools.flock.set(
+        boat[0] + outward.x * 7 + Math.cos(i * 1.3) * 3,
+        boat[1] + 9 + i * 0.4,
+        boat[2] + outward.z * 7 + Math.sin(i * 1.3) * 3,
+      );
+      const k = w * w * (3 - 2 * w);
+      const pos = tools.b.copy(sky).lerp(orbit, k);
+      pos.y = Math.max(pos.y, env.water + WATER_CLEARANCE);
+      if (!v.prev[i]) v.prev[i] = new THREE.Vector3();
+      const vel = tools.vel;
+      if (v.has[i] && delta > 0) vel.copy(pos).sub(v.prev[i]).divideScalar(delta);
+      else vel.set(-Math.sin(angle), 0, Math.cos(angle));
+      const prevYaw = v.yaw[i] ?? 0;
+      const targetYaw = Math.hypot(vel.x, vel.z) > 0.05 ? Math.atan2(vel.x, vel.z) : prevYaw;
+      const yaw = v.has[i] ? prevYaw + wrapAngle(targetYaw - prevYaw) * (1 - Math.exp(-8 * delta)) : targetYaw;
+      const yawRate = delta > 0 ? wrapAngle(yaw - prevYaw) / delta : 0;
+      const roll = (v.roll[i] ?? 0) + (THREE.MathUtils.clamp(-yawRate * 0.3, -MAX_BANK, MAX_BANK) - (v.roll[i] ?? 0)) * (1 - Math.exp(-6 * delta));
+      v.yaw[i] = yaw;
+      v.roll[i] = roll;
+      v.prev[i].copy(pos);
+      v.has[i] = true;
+      bird.position.copy(pos);
+      const body = bodyRefs.current[i];
+      if (body) {
+        body.rotation.order = "YXZ";
+        body.rotation.set(-0.05, yaw, roll);
+      }
+      const appear = THREE.MathUtils.smoothstep(w, 0, 0.3);
+      bird.scale.setScalar(BIRD_SCALE * SKILL_HIGHLIGHT_SCALE * Math.max(0.0001, appear));
+      bird.visible = true;
+    });
+  };
+
   useFrame((_, rawDelta) => {
     if (!projectBirdsVisible) {
+      visibleForRef.current = 0;
       if (wasVisibleRef.current) {
         wasVisibleRef.current = false;
         flightsRef.current = birds.map(() => newFlight());
@@ -439,10 +541,18 @@ export function ProjectBirdFlock() {
         });
       }
       birdFollowRuntime.active = false;
+      if (skillMode) stepSkillVisit(rawDelta);
+      else if (visitRef.current.w.length > 0) visitRef.current.w = [];
       return;
     }
     wasVisibleRef.current = true;
     const delta = Math.min(rawDelta, 0.1);
+    visibleForRef.current += delta;
+    if (projectFocusRequest && visibleForRef.current > 0.9) {
+      const index = projectBirdItems.findIndex((p) => p.id === projectFocusRequest);
+      clearProjectFocusRequest();
+      if (index >= 0) focusProjectByIndex(index);
+    }
     const env = envRef.current;
     env.refreshIn -= delta;
     refreshEnv();
@@ -648,7 +758,7 @@ export function ProjectBirdFlock() {
     if (projectExit !== "takingOff" || exit.handled) birdFollowRuntime.active = false;
   });
 
-  if (!projectBirdsVisible) return null;
+  if (!projectBirdsVisible && !skillMode) return null;
 
   return (
     <group name="project-bird-flock">
@@ -668,6 +778,7 @@ export function ProjectBirdFlock() {
             ]}
             scale={0.0001}
             onClick={(e) => {
+              if (!projectBirdsVisible) return;
               e.stopPropagation();
               focusProjectByIndex(i);
             }}
@@ -680,6 +791,7 @@ export function ProjectBirdFlock() {
               <primitive object={bird} dispose={null} />
               <mesh
                 onClick={(e) => {
+                  if (!projectBirdsVisible) return;
                   e.stopPropagation();
                   focusProjectByIndex(i);
                 }}
@@ -688,6 +800,14 @@ export function ProjectBirdFlock() {
                 <meshBasicMaterial transparent opacity={0} depthWrite={false} />
               </mesh>
             </group>
+            {skillMode && skillProjectIds.includes(project.id) && (
+              <Html center position={[0, 1.25, 0]} distanceFactor={10}>
+                <span className="pointer-events-none rounded-full border border-[#f3c77a] bg-[#2f1f11]/85 px-3 py-1 text-[11px] font-semibold tracking-[0.08em] whitespace-nowrap text-[#fff1d6] shadow-[0_0_14px_rgba(243,199,122,0.75)] backdrop-blur-sm">
+                  {project.name}
+                </span>
+              </Html>
+            )}
+            {projectBirdsVisible && (
             <Html center position={[0, 1.25, 0]} distanceFactor={10}>
               <button
                 type="button"
@@ -700,6 +820,7 @@ export function ProjectBirdFlock() {
                 {project.name}
               </button>
             </Html>
+            )}
           </group>
         );
       })}
