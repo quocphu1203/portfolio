@@ -1,17 +1,21 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Html } from "@react-three/drei";
 import { useGLTF } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
-import { useLocale } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { RigidBody, type RapierRigidBody, useRapier } from "@react-three/rapier";
 import * as THREE from "three";
 import { clone } from "three/examples/jsm/utils/SkeletonUtils.js";
 
 import { getExperienceMilestones } from "../../../mock/experienceData";
 import type { AppLocale } from "../../../mock/locale";
+import { exploreRuntime } from "../navigation/exploreRuntime";
 import { usePortfolioNav } from "../navigation/PortfolioNavContext";
+import { useReducedMotion } from "../performance/useReducedMotion";
+import { resolveWaterLevel } from "./waterLevel";
+import { MilestonePennant } from "./MilestonePennant";
 
 const CAT_SCALE = 1 / 80;
 const CAT_WALL_CLEARANCE = 0;
@@ -49,6 +53,18 @@ const CAT_GROUND_MAX_PITCH = 0.2;
 const CAT_RUN_GROUND_BASE = -(DOC_SURFACE_OFFSET_Y + 0.75 * CAT_SCALE - CAT_PAW_GROUND_EPS);
 const CAT_TURN_LEAN = 0.05;
 const CAT_MAX_LEAN = 0.09;
+// Explore mode (player-driven cat).
+const CAT_EXPLORE_SPEED = 1.25;
+const CAT_EXPLORE_ACCEL = 3.2;
+const CAT_EXPLORE_DECEL = 4.0;
+const CAT_EXPLORE_ARRIVE_RADIUS = 0.06;
+const CAT_EXPLORE_SLOW_RADIUS = 0.7;
+const CAT_EXPLORE_MAX_STEP_UP = 0.32;
+const CAT_EXPLORE_MAX_STEP_DOWN = 0.45;
+const CAT_EXPLORE_MIN_NORMAL_Y = 0.5;
+const CAT_EXPLORE_WATER_MARGIN = 0.12;
+const MILESTONE_PROMPT_RADIUS = 0.85;
+const PENNANT_OFFSET: [number, number, number] = [0.16, 0, 0.1];
 const TORCH_SCALE = 0.35;
 const TORCH_FLAME_OFFSET: [number, number, number] = [0, 0.23, 0];
 const FIXED_TORCH_OFFSETS: [number, number, number][] = [
@@ -336,6 +352,17 @@ function snapPointToDocSurface(pos: THREE.Vector3, meshes: THREE.Mesh[], offsetY
   return null;
 }
 
+// Orientation for the kinematic cat body: up = (smoothed) surface normal, facing along heading.
+function catBodyQuaternion(up: THREE.Vector3, heading: number) {
+  const headingForward = new THREE.Vector3(Math.sin(heading + Math.PI), 0, Math.cos(heading + Math.PI));
+  const forwardProjected = headingForward.sub(up.clone().multiplyScalar(headingForward.dot(up)));
+  if (forwardProjected.lengthSq() < 1e-6) forwardProjected.set(0, 0, 1).sub(up.clone().multiplyScalar(up.z));
+  forwardProjected.normalize();
+  const right = new THREE.Vector3().crossVectors(up, forwardProjected).normalize();
+  const forward = new THREE.Vector3().crossVectors(right, up).normalize();
+  return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(right, up, forward));
+}
+
 function resolveDocRoot(scene: THREE.Object3D) {
   const direct = scene.getObjectByName("doc");
   if (direct) return direct;
@@ -349,15 +376,20 @@ function resolveDocRoot(scene: THREE.Object3D) {
 
 export function ExperienceMilestoneTrail() {
   const locale = useLocale() as AppLocale;
+  const tExplore = useTranslations("explore");
   const experienceMilestones = getExperienceMilestones(locale);
   const {
     activeSection,
+    setActiveSection,
     experienceJourneyKey,
     experienceUnlockedCount,
     setExperienceUnlockedCount,
     setExperienceCatPose,
+    exploreMode,
   } = usePortfolioNav();
-  const { scene: worldScene } = useThree();
+  const catActive = activeSection === "credits" || exploreMode;
+  const reducedMotion = useReducedMotion();
+  const { scene: worldScene, gl, camera } = useThree();
   const { world, rapier } = useRapier();
   const { scene: catScene, animations } = useGLTF("/cat_rigged.glb?v=4") as {
     scene: THREE.Object3D;
@@ -400,8 +432,21 @@ export function ExperienceMilestoneTrail() {
   const lastPoseUpdateAtRef = useRef(0);
   const raycasterRef = useRef(new THREE.Raycaster());
   const docRayRef = useRef(new THREE.Raycaster());
+  // Explore mode state (mutated per frame; React state only for the milestone prompt).
+  const exploreRef = useRef({
+    needsInit: false,
+    keys: { f: 0, b: 0, l: 0, r: 0 },
+    moveTarget: null as THREE.Vector3 | null,
+    speed: 0,
+    near: -1,
+    markerAge: 0,
+  });
+  const markerRef = useRef<THREE.Mesh | null>(null);
+  // World-space ocean height (the water lives inside the scaled island group); refreshed on explore init.
+  const waterLevelRef = useRef(0);
+  const [nearMilestone, setNearMilestone] = useState(-1);
   const pathPoints = useMemo(() => {
-    const refreshKey = `${activeSection ?? "none"}-${experienceJourneyKey}`;
+    const refreshKey = `${activeSection ?? "none"}-${experienceJourneyKey}-${exploreMode ? "explore" : "guided"}`;
     const pathNode = resolveDocRoot(worldScene);
     if (!pathNode) return smoothPath(FALLBACK_PATH.map((p) => new THREE.Vector3(p[0], p[1], p[2])));
     pathNode.updateWorldMatrix(true, true);
@@ -409,12 +454,13 @@ export function ExperienceMilestoneTrail() {
     if (built.length >= 2) return smoothPath(built);
     void refreshKey;
     return smoothPath(FALLBACK_PATH.map((p) => new THREE.Vector3(p[0], p[1], p[2])));
-  }, [worldScene, activeSection, experienceJourneyKey]);
+  }, [worldScene, activeSection, experienceJourneyKey, exploreMode]);
   const docMeshes = useMemo(() => {
     // Re-resolve when the section/journey (re)starts: the island GLB may not be in the scene yet on first mount,
     // which left this empty and disabled floor snapping + slope alignment for the cat.
     void activeSection;
     void experienceJourneyKey;
+    void exploreMode;
     const docRoot = resolveDocRoot(worldScene);
     if (!docRoot) return [] as THREE.Mesh[];
     docRoot.updateWorldMatrix(true, true);
@@ -424,8 +470,12 @@ export function ExperienceMilestoneTrail() {
       if (mesh.isMesh) meshes.push(mesh);
     });
     return meshes;
-  }, [worldScene, activeSection, experienceJourneyKey]);
+  }, [worldScene, activeSection, experienceJourneyKey, exploreMode]);
   const wallMeshes = useMemo(() => {
+    // Re-resolve when the cat (re)appears: the island may not have been tagged yet on first mount.
+    void activeSection;
+    void experienceJourneyKey;
+    void exploreMode;
     const meshesFromTag: THREE.Mesh[] = [];
     worldScene.traverse((child) => {
       const mesh = child as THREE.Mesh;
@@ -445,7 +495,12 @@ export function ExperienceMilestoneTrail() {
       });
     }
     return meshes;
-  }, [worldScene]);
+  }, [worldScene, activeSection, experienceJourneyKey, exploreMode]);
+  // Walkable surfaces for explore mode: terrain, path and rocks (visible originals only).
+  const groundMeshes = useMemo(() => {
+    const visible = wallMeshes.filter((mesh) => mesh.visible);
+    return visible.length > 0 ? visible : docMeshes;
+  }, [wallMeshes, docMeshes]);
 
   const progressMarks = useMemo(
     () => flagProgressMarks(experienceMilestones.length),
@@ -622,7 +677,7 @@ export function ExperienceMilestoneTrail() {
   }, [animations, catModel]);
 
   useEffect(() => {
-    if (activeSection !== "credits" || pathPoints.length < 2) return;
+    if (activeSection !== "credits" || exploreMode || pathPoints.length < 2) return;
     elapsedRef.current = 0;
     runningRef.current = true;
     unlockedRef.current = 0;
@@ -663,7 +718,144 @@ export function ExperienceMilestoneTrail() {
       walkActionRef.current.setEffectiveWeight(idleActionRef.current ? 0 : 1);
       walkActionRef.current.play();
     }
-  }, [activeSection, experienceJourneyKey, pathPoints, journeyPath, setExperienceUnlockedCount, setExperienceCatPose]);
+  }, [activeSection, exploreMode, experienceJourneyKey, pathPoints, journeyPath, setExperienceUnlockedCount, setExperienceCatPose]);
+
+  // ---------------------------------------------------------------------------------------------
+  // Explore mode: WASD / arrows (camera-relative), tap/click-to-move, drag to look, wheel to zoom.
+  // ---------------------------------------------------------------------------------------------
+  useEffect(() => {
+    exploreRuntime.groundMeshes = exploreMode ? groundMeshes : [];
+  }, [exploreMode, groundMeshes]);
+
+  useEffect(() => {
+    const ex = exploreRef.current;
+    if (exploreMode) {
+      ex.needsInit = true;
+      return;
+    }
+    exploreRuntime.catReady = false;
+    ex.moveTarget = null;
+    ex.speed = 0;
+    // Sentinel: forces the prompt state to resync on the first explore frame next time.
+    ex.near = -2;
+    ex.keys = { f: 0, b: 0, l: 0, r: 0 };
+  }, [exploreMode]);
+
+  const openMilestone = useCallback(
+    (idx: number) => {
+      // Reuse the existing Experience panel: unlock up to this milestone and open the section.
+      setExperienceUnlockedCount(Math.max(experienceUnlockedCount, idx + 1));
+      setActiveSection("credits");
+    },
+    [experienceUnlockedCount, setActiveSection, setExperienceUnlockedCount]
+  );
+
+  useEffect(() => {
+    if (!exploreMode) return;
+    const ex = exploreRef.current;
+    const keyFor = (code: string): "f" | "b" | "l" | "r" | null => {
+      if (code === "KeyW" || code === "ArrowUp") return "f";
+      if (code === "KeyS" || code === "ArrowDown") return "b";
+      if (code === "KeyA" || code === "ArrowLeft") return "l";
+      if (code === "KeyD" || code === "ArrowRight") return "r";
+      return null;
+    };
+    const isTyping = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      return Boolean(el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable));
+    };
+    const onDown = (e: KeyboardEvent) => {
+      if (isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+      const k = keyFor(e.code);
+      if (k) {
+        ex.keys[k] = 1;
+        e.preventDefault();
+        return;
+      }
+      if (e.code === "KeyE" && ex.near >= 0) openMilestone(ex.near);
+    };
+    const onUp = (e: KeyboardEvent) => {
+      const k = keyFor(e.code);
+      if (k) ex.keys[k] = 0;
+    };
+    const onBlur = () => {
+      ex.keys = { f: 0, b: 0, l: 0, r: 0 };
+    };
+    window.addEventListener("keydown", onDown);
+    window.addEventListener("keyup", onUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onDown);
+      window.removeEventListener("keyup", onUp);
+      window.removeEventListener("blur", onBlur);
+      onBlur();
+    };
+  }, [exploreMode, openMilestone]);
+
+  useEffect(() => {
+    if (!exploreMode) return;
+    const el = gl.domElement;
+    const ex = exploreRef.current;
+    const ndc = new THREE.Vector2();
+    const ray = new THREE.Raycaster();
+    const normal = new THREE.Vector3();
+    let press: { id: number; x: number; y: number; lastX: number; lastY: number; at: number; moved: boolean } | null =
+      null;
+    const onDown = (e: PointerEvent) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      press = { id: e.pointerId, x: e.clientX, y: e.clientY, lastX: e.clientX, lastY: e.clientY, at: performance.now(), moved: false };
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!press || e.pointerId !== press.id) return;
+      const dx = e.clientX - press.lastX;
+      const dy = e.clientY - press.lastY;
+      press.lastX = e.clientX;
+      press.lastY = e.clientY;
+      if (!press.moved && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 8) {
+        press.moved = true;
+        exploreRuntime.dragging = true;
+      }
+      if (press.moved) {
+        exploreRuntime.camYaw -= dx * 0.006;
+        exploreRuntime.camPitch = THREE.MathUtils.clamp(exploreRuntime.camPitch + dy * 0.004, 0.12, 1.05);
+      }
+    };
+    const onUp = (e: PointerEvent) => {
+      if (!press || e.pointerId !== press.id) return;
+      const tap = !press.moved && performance.now() - press.at < 600;
+      press = null;
+      exploreRuntime.dragging = false;
+      if (!tap || e.type === "pointercancel") return;
+      const rect = el.getBoundingClientRect();
+      ndc.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+      ray.setFromCamera(ndc, camera);
+      const hit = ray.intersectObjects(groundMeshes, false)[0];
+      if (!hit || hit.point.y < resolveWaterLevel(worldScene) + CAT_EXPLORE_WATER_MARGIN) return;
+      if (hit.face) {
+        normal.copy(hit.face.normal).transformDirection(hit.object.matrixWorld);
+        if (Math.abs(normal.y) < CAT_EXPLORE_MIN_NORMAL_Y) return;
+      }
+      ex.moveTarget = hit.point.clone();
+      ex.markerAge = 0;
+      exploreRuntime.followHeading = true;
+    };
+    const onWheel = (e: WheelEvent) => {
+      exploreRuntime.camDist = THREE.MathUtils.clamp(exploreRuntime.camDist + e.deltaY * 0.004, 2.4, 7.5);
+    };
+    el.addEventListener("pointerdown", onDown);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    el.addEventListener("wheel", onWheel, { passive: true });
+    return () => {
+      el.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      el.removeEventListener("wheel", onWheel);
+      exploreRuntime.dragging = false;
+    };
+  }, [exploreMode, gl, camera, groundMeshes, worldScene]);
 
   useEffect(() => {
     if (activeSection === "credits") return;
@@ -674,7 +866,9 @@ export function ExperienceMilestoneTrail() {
   // when standing it settles height + pitch onto the ground; while running it only lifts out of penetration.
   const groundPaws = (runWeight: number, delta: number) => {
     const { mesh, front, back } = catPawRef.current;
-    if (!catGroundGroupRef.current || !mesh || front.length === 0 || back.length === 0 || docMeshes.length === 0) return;
+    // Guided mode stays on the doc path; explore mode can roam the whole walkable terrain.
+    const pawMeshes = exploreMode ? groundMeshes : docMeshes;
+    if (!catGroundGroupRef.current || !mesh || front.length === 0 || back.length === 0 || pawMeshes.length === 0) return;
     catGroundGroupRef.current.updateMatrixWorld(true);
     mesh.skeleton.update();
     const v = new THREE.Vector3();
@@ -691,7 +885,7 @@ export function ExperienceMilestoneTrail() {
     const clearance = (p: THREE.Vector3) => {
       ray.set(new THREE.Vector3(p.x, p.y + 0.6, p.z), new THREE.Vector3(0, -1, 0));
       ray.far = 2;
-      const hits = ray.intersectObjects(docMeshes, true);
+      const hits = ray.intersectObjects(pawMeshes, true);
       return hits.length > 0 ? p.y - hits[0].point.y : null;
     };
     const pf = lowest(front);
@@ -721,8 +915,190 @@ export function ExperienceMilestoneTrail() {
     }
   };
 
+  // Walkability probe for explore mode: ground under (x, z) near the cat's height, or null if the spot is
+  // water, off an edge, too steep, or a step up onto a rock / cliff.
+  const probeWalkable = (x: number, z: number, fromY: number) => {
+    const ray = raycasterRef.current;
+    ray.set(new THREE.Vector3(x, fromY + 0.6, z), new THREE.Vector3(0, -1, 0));
+    ray.far = 0.6 + CAT_EXPLORE_MAX_STEP_DOWN + 0.2;
+    const hit = ray.intersectObjects(groundMeshes, false)[0];
+    if (!hit || hit.point.y < waterLevelRef.current + CAT_EXPLORE_WATER_MARGIN) return null;
+    const dy = hit.point.y - fromY;
+    if (dy > CAT_EXPLORE_MAX_STEP_UP || dy < -CAT_EXPLORE_MAX_STEP_DOWN) return null;
+    const normal = hit.face
+      ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize()
+      : new THREE.Vector3(0, 1, 0);
+    if (normal.y < 0) normal.negate();
+    if (normal.y < CAT_EXPLORE_MIN_NORMAL_Y) return null;
+    return { point: hit.point, normal };
+  };
+
+  const initExploreCat = () => {
+    const body = catBodyRef.current;
+    if (!body || groundMeshes.length === 0) return false;
+    const ex = exploreRef.current;
+    const pos = catPosRef.current;
+    waterLevelRef.current = resolveWaterLevel(worldScene);
+    const fallback = journeyPath.points[0] ?? pathPoints[0];
+    const keep = pos.lengthSq() > 0.01 ? probeWalkable(pos.x, pos.z, pos.y + 0.2) : null;
+    if (!keep && fallback) pos.copy(fallback);
+    // Drop onto the top-most walkable surface under the spawn point.
+    const drop = raycasterRef.current;
+    drop.set(new THREE.Vector3(pos.x, pos.y + 20, pos.z), new THREE.Vector3(0, -1, 0));
+    drop.far = 40;
+    const top = drop.intersectObjects(groundMeshes, false)[0];
+    if (top) pos.y = top.point.y;
+    const ground = probeWalkable(pos.x, pos.z, pos.y + 0.05);
+    if (ground) {
+      pos.y = ground.point.y + DOC_SURFACE_OFFSET_Y;
+      surfaceNormalRef.current.copy(ground.normal);
+    }
+    body.setTranslation({ x: pos.x, y: pos.y, z: pos.z }, true);
+    body.setNextKinematicTranslation({ x: pos.x, y: pos.y, z: pos.z });
+    runningRef.current = false;
+    catSpeedRef.current = 0;
+    ex.speed = 0;
+    ex.moveTarget = null;
+    if (idleActionRef.current && !idleActionRef.current.isRunning()) {
+      idleActionRef.current.reset();
+      idleActionRef.current.setEffectiveWeight(1);
+      idleActionRef.current.play();
+    }
+    if (walkActionRef.current && !walkActionRef.current.isRunning()) {
+      walkActionRef.current.reset();
+      walkActionRef.current.setEffectiveWeight(idleActionRef.current ? 0 : 1);
+      walkActionRef.current.play();
+    }
+    exploreRuntime.catPos.copy(pos);
+    exploreRuntime.catHeading = headingRef.current;
+    exploreRuntime.catReady = true;
+    ex.needsInit = false;
+    return true;
+  };
+
+  const exploreStep = (delta: number) => {
+    const ex = exploreRef.current;
+    if (ex.needsInit && !initExploreCat()) return;
+    const body = catBodyRef.current;
+    if (!body) return;
+    const pos = catPosRef.current;
+    // Camera-relative input: "forward" points away from the camera.
+    const yaw = exploreRuntime.camYaw;
+    const fx = -Math.sin(yaw);
+    const fz = -Math.cos(yaw);
+    const k = ex.keys;
+    let ix = fx * (k.f - k.b) - fz * (k.r - k.l);
+    let iz = fz * (k.f - k.b) + fx * (k.r - k.l);
+    let desiredSpeed = 0;
+    if (ix !== 0 || iz !== 0) {
+      ex.moveTarget = null;
+      exploreRuntime.followHeading = false;
+      const len = Math.hypot(ix, iz);
+      ix /= len;
+      iz /= len;
+      desiredSpeed = CAT_EXPLORE_SPEED;
+    } else if (ex.moveTarget) {
+      const dx = ex.moveTarget.x - pos.x;
+      const dz = ex.moveTarget.z - pos.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist < CAT_EXPLORE_ARRIVE_RADIUS) {
+        ex.moveTarget = null;
+        exploreRuntime.followHeading = false;
+      } else {
+        ix = dx / dist;
+        iz = dz / dist;
+        desiredSpeed = Math.max(0.15, CAT_EXPLORE_SPEED * smoothstep01(dist / CAT_EXPLORE_SLOW_RADIUS));
+      }
+    }
+    const prevHeading = headingRef.current;
+    if (desiredSpeed > 0) {
+      const targetHeading = Math.atan2(ix, iz);
+      const err = Math.abs(wrapAngle(targetHeading - prevHeading));
+      headingRef.current = prevHeading + wrapAngle(targetHeading - prevHeading) * (1 - Math.exp(-CAT_ROTATE_SMOOTHNESS * delta));
+      // Slow down while turning sharply so the cat arcs round instead of sliding sideways.
+      desiredSpeed *= THREE.MathUtils.lerp(1, 0.3, smoothstep01(err / (Math.PI * 0.6)));
+    }
+    const rate = desiredSpeed > ex.speed ? CAT_EXPLORE_ACCEL : CAT_EXPLORE_DECEL;
+    ex.speed += (desiredSpeed - ex.speed) * (1 - Math.exp(-rate * delta));
+    if (desiredSpeed === 0 && ex.speed < 0.01) ex.speed = 0;
+
+    let moved = 0;
+    let targetY = pos.y;
+    const step = ex.speed * delta;
+    if (step > 1e-6) {
+      const mx = Math.sin(headingRef.current) * step;
+      const mz = Math.cos(headingRef.current) * step;
+      // Try the full step, then slide along each axis (walls, shorelines, cliff edges).
+      const candidates: [number, number][] = [
+        [mx, mz],
+        [mx, 0],
+        [0, mz],
+      ];
+      let accepted = false;
+      for (const [cx, cz] of candidates) {
+        const hit = probeWalkable(pos.x + cx, pos.z + cz, pos.y);
+        if (!hit) continue;
+        pos.x += cx;
+        pos.z += cz;
+        targetY = hit.point.y + DOC_SURFACE_OFFSET_Y;
+        surfaceNormalRef.current.lerp(hit.normal, 1 - Math.exp(-8 * delta)).normalize();
+        moved = Math.hypot(cx, cz);
+        accepted = true;
+        break;
+      }
+      if (!accepted) {
+        // No ground ahead (water / edge / steep): stop rather than walk off.
+        ex.speed *= 0.2;
+        ex.moveTarget = null;
+        exploreRuntime.followHeading = false;
+      }
+    } else {
+      const hit = probeWalkable(pos.x, pos.z, pos.y + 0.1);
+      if (hit) targetY = hit.point.y + DOC_SURFACE_OFFSET_Y;
+    }
+    pos.y += (targetY - pos.y) * (1 - Math.exp(-18 * delta));
+    const actualSpeed = delta > 0 ? moved / delta : 0;
+    catSpeedRef.current = actualSpeed;
+
+    const yawRate = delta > 0 ? wrapAngle(headingRef.current - prevHeading) / delta : 0;
+    const leanAmount = THREE.MathUtils.clamp(yawRate * actualSpeed * CAT_TURN_LEAN, -CAT_MAX_LEAN, CAT_MAX_LEAN);
+    const leanVec = new THREE.Vector3(Math.cos(headingRef.current), 0, -Math.sin(headingRef.current));
+    const up = surfaceNormalRef.current.clone().addScaledVector(leanVec, leanAmount).normalize();
+    const q = catBodyQuaternion(up, headingRef.current);
+    body.setNextKinematicTranslation({ x: pos.x, y: pos.y, z: pos.z });
+    body.setNextKinematicRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
+    exploreRuntime.catPos.copy(pos);
+    exploreRuntime.catHeading = headingRef.current;
+
+    // Milestone proximity -> prompt (React state only changes when entering / leaving a radius).
+    let near = -1;
+    for (const stop of milestoneStops) {
+      const p = stop.position;
+      if (Math.hypot(p.x - pos.x, p.z - pos.z) < MILESTONE_PROMPT_RADIUS && Math.abs(p.y - pos.y) < 1) {
+        near = stop.idx;
+        break;
+      }
+    }
+    if (near !== ex.near) {
+      ex.near = near;
+      setNearMilestone(near);
+    }
+
+    const marker = markerRef.current;
+    if (marker) {
+      const target = ex.moveTarget;
+      marker.visible = Boolean(target);
+      if (target) {
+        ex.markerAge += delta;
+        marker.position.set(target.x, target.y + 0.012, target.z);
+        const pulse = 1 + Math.sin(ex.markerAge * 6) * 0.12;
+        marker.scale.setScalar(Math.min(1, ex.markerAge * 6) * pulse);
+      }
+    }
+  };
+
   useFrame((_, delta) => {
-    if (mixerRef.current && activeSection === "credits") {
+    if (mixerRef.current && catActive) {
       // AnimationMixer skips writing tracks whose value did not change (e.g. constant idle channels),
       // so undo last frame's additive offsets first; otherwise they accumulate and the cat tumbles.
       const offset = catPoseOffsetRef.current;
@@ -746,6 +1122,10 @@ export function ExperienceMilestoneTrail() {
       for (const bodyBone of catBodyBoneRefs.current) bodyBone.rotateX(offset.body);
       for (const headBone of catHeadBoneRefs.current) headBone.rotateX(offset.head);
       groundPaws(walkWeight, delta);
+    }
+    if (exploreMode) {
+      exploreStep(Math.min(delta, 0.1));
+      return;
     }
     if (activeSection !== "credits") return;
     if (!runningRef.current) return;
@@ -936,7 +1316,7 @@ export function ExperienceMilestoneTrail() {
     }
   });
 
-  if (activeSection !== "credits") return null;
+  if (!catActive) return null;
 
   return (
     <group name="experience-milestone-trail">
@@ -962,6 +1342,27 @@ export function ExperienceMilestoneTrail() {
                 />
               </group>
             )}
+            <MilestonePennant
+              position={PENNANT_OFFSET}
+              parentYaw={flagYaw}
+              color={isUnlocked || exploreMode ? "#d9732f" : "#56707e"}
+              reducedMotion={reducedMotion}
+            />
+            {exploreMode && nearMilestone === stop.idx && (
+              <Html position={[0.05, 0.95, 0]} center zIndexRange={[12, 0]}>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openMilestone(stop.idx);
+                  }}
+                  className="cursor-pointer rounded-full border border-[#dca869]/80 bg-[#2f1f11]/85 px-3 py-1 text-[11px] font-semibold tracking-[0.06em] whitespace-nowrap text-[#fce6c4] shadow-lg backdrop-blur-sm"
+                >
+                  {tExplore("milestonePrompt", { title: milestone.title })}
+                  <span className="ml-2 hidden rounded border border-[#dca869]/60 px-1 text-[10px] sm:inline">E</span>
+                </button>
+              </Html>
+            )}
             <Html position={[0.05, 1.45, 0]} distanceFactor={16} center zIndexRange={[8, 0]}>
               <span
                 className={[
@@ -977,6 +1378,13 @@ export function ExperienceMilestoneTrail() {
           </group>
         );
       })}
+
+      {exploreMode && (
+        <mesh ref={markerRef} rotation={[-Math.PI / 2, 0, 0]} scale={0.0001} renderOrder={2}>
+          <ringGeometry args={[0.06, 0.09, 24]} />
+          <meshBasicMaterial color="#ffe7b0" transparent opacity={0.85} depthWrite={false} />
+        </mesh>
+      )}
 
       <RigidBody
         ref={catBodyRef}

@@ -51,5 +51,17 @@
     "projectLearned": "Mình học được gì",
     "projectChallenges": "Vấn đề đã giải quyết",
     "projectLinks": "Liên kết"
+  },
+  "explore": {
+    "enter": "Khám phá",
+    "exit": "Thoát khám phá",
+    "hintDesktop": "WASD / phím mũi tên hoặc bấm vào mặt đất để di chuyển · Kéo để xoay · Esc để thoát",
+    "hintTouch": "Chạm vào mặt đất để di chuyển · Kéo để xoay",
+    "milestonePrompt": "Xem: {title}"
+  },
+  "weather": {
+    "rainAuto": "Mưa: tự động",
+    "rainOn": "Mưa: bật",
+    "rainOff": "Mưa: tắt"
   }
 }

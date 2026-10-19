@@ -19,8 +19,10 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
     activeSection,
     flyToDefault,
     selectedProjectId,
-    setSelectedProjectId,
     experienceUnlockedCount,
+    exploreMode,
+    setActiveSection,
+    closeProject,
   } = usePortfolioNav();
 
   useEffect(() => {
@@ -28,14 +30,20 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (activeSection === "projects" && selectedProjectId) {
-        setSelectedProjectId(null);
+        // Bird takes off first, then the camera returns to the overview.
+        closeProject();
+        return;
+      }
+      // In explore mode only close the panel and keep roaming.
+      if (exploreMode) {
+        setActiveSection(null);
         return;
       }
       flyToDefault();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [visible, activeSection, flyToDefault, selectedProjectId, setSelectedProjectId]);
+  }, [visible, activeSection, flyToDefault, selectedProjectId, closeProject, exploreMode, setActiveSection]);
 
   const panelRef = useRef<HTMLDivElement>(null);
   const [isMobileLike, setIsMobileLike] = useState(false);
@@ -50,11 +58,15 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
 
   const handleClose = useCallback(() => {
     if (activeSection === "projects" && selectedProjectId) {
-      setSelectedProjectId(null);
+      closeProject();
+      return;
+    }
+    if (exploreMode) {
+      setActiveSection(null);
       return;
     }
     flyToDefault();
-  }, [activeSection, selectedProjectId, setSelectedProjectId, flyToDefault]);
+  }, [activeSection, selectedProjectId, closeProject, flyToDefault, exploreMode, setActiveSection]);
 
   useEffect(() => {
     if (!visible || !activeSection) return;

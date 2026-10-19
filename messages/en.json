@@ -51,5 +51,17 @@
     "projectLearned": "What I learned",
     "projectChallenges": "Challenges solved",
     "projectLinks": "Links"
+  },
+  "explore": {
+    "enter": "Explore",
+    "exit": "Exit explore",
+    "hintDesktop": "WASD / arrow keys or click the ground to move · Drag to look · Esc to exit",
+    "hintTouch": "Tap the ground to move · Drag to look",
+    "milestonePrompt": "View: {title}"
+  },
+  "weather": {
+    "rainAuto": "Rain: auto",
+    "rainOn": "Rain: on",
+    "rainOff": "Rain: off"
   }
 }

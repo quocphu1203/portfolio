@@ -11,15 +11,18 @@ import { CameraNavController } from "./_components/navigation/CameraNavControlle
 import { IslandSignpostMenu } from "./_components/navigation/IslandSignpostMenu";
 import { PortfolioNavProvider } from "./_components/navigation/PortfolioNavContext";
 import { PerformanceProvider, usePerformanceMode } from "./_components/performance/PerformanceContext";
+import { useReducedMotion } from "./_components/performance/useReducedMotion";
 import { FantasyIslandFitted, type OrbitControlsInstance } from "./_components/scene/FantasyIslandFitted";
 import { FloatingBoats } from "./_components/scene/FloatingBoat";
 import { ExperienceMilestoneTrail } from "./_components/scene/ExperienceMilestoneTrail";
 import { ProjectBirdFlock } from "./_components/scene/ProjectBirdFlock";
 import { SkyBackdrop } from "./_components/scene/SkyBackdrop";
 import { StartFogReveal } from "./_components/scene/StartFogReveal";
+import { WeatherEffects, type RainMode } from "./_components/scene/WeatherEffects";
 import { TimeOfDayProvider } from "./_components/time/TimeOfDayContext";
 import { TimeOfDayLighting } from "./_components/time/TimeOfDayLighting";
 import { TimeOfDayToggle } from "./_components/time/TimeOfDayToggle";
+import { ExploreControls } from "./_components/ui/ExploreControls";
 import { ImmersiveChrome } from "./_components/ui/ImmersiveChrome";
 import { IslandIntroOverlay } from "./_components/ui/IslandIntroOverlay";
 import { LanguageSwitcher } from "./_components/ui/LanguageSwitcher";
@@ -35,6 +38,8 @@ function FantasyIslandCanvasInner() {
   const controlsRef = useRef<OrbitControlsInstance | null>(null);
   const oceanAudioRef = useRef<HTMLAudioElement | null>(null);
   const [started, setStarted] = useState(false);
+  const [rainMode, setRainMode] = useState<RainMode>("auto");
+  const reducedMotion = useReducedMotion();
   const [introExiting, setIntroExiting] = useState(false);
   const [fogRevealMounted, setFogRevealMounted] = useState(false);
   const [fogRevealOpen, setFogRevealOpen] = useState(false);
@@ -125,6 +130,12 @@ function FantasyIslandCanvasInner() {
 
         <Suspense fallback={null}>
           <SkyBackdrop lowPerformance={lowPerformance} />
+          <WeatherEffects
+            lowPerformance={lowPerformance}
+            reducedMotion={reducedMotion}
+            rainMode={rainMode}
+            active={started}
+          />
           <OrbitControls
             ref={controlsRef}
             enablePan={false}
@@ -187,6 +198,12 @@ function FantasyIslandCanvasInner() {
           {lowPerformance ? tIntro("optimizedMode") : tIntro("qualityMode")}
         </button>
       )}
+      <ExploreControls
+        visible={started}
+        rainMode={rainMode}
+        onRainModeChange={setRainMode}
+        rainAvailable={!reducedMotion}
+      />
       <PortfolioInfoPanel visible={started} />
       <TimeOfDayToggle visible={started} />
       <LanguageSwitcher />

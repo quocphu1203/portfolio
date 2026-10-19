@@ -10,6 +10,8 @@ export type NavTransition = {
   sectionId?: NavId;
   cameraPos: THREE.Vector3;
   target: THREE.Vector3;
+  /** Fly around the island (cylindrical path) instead of a straight line that could cut through terrain. */
+  arc?: boolean;
 };
 
 type PortfolioNavContextValue = {
@@ -31,12 +33,23 @@ type PortfolioNavContextValue = {
   projectBirdsVisible: boolean;
   selectedProjectId: string | null;
   setSelectedProjectId: (id: string | null) => void;
-  focusProjectBird: (id: string, position: [number, number, number]) => void;
+  focusProjectBird: (id: string, position: [number, number, number], options?: { perch?: boolean }) => void;
   experienceJourneyKey: number;
   experienceUnlockedCount: number;
   setExperienceUnlockedCount: (count: number) => void;
   experienceCatPose: { position: [number, number, number]; heading: number } | null;
   setExperienceCatPose: (pose: { position: [number, number, number]; heading: number } | null) => void;
+  /**
+   * Closing a project: "takingOff" (bird takes off, camera follows it) -> "returning" (camera flies back to the
+   * island overview) -> "idle". Re-selecting a bird at any point cancels it.
+   */
+  projectExit: "idle" | "takingOff" | "returning";
+  closeProject: () => void;
+  returnToOverview: () => void;
+  /** Free-roam mode: the player drives the cat (off by default). */
+  exploreMode: boolean;
+  enterExplore: () => void;
+  exitExplore: () => void;
 };
 
 const PortfolioNavContext = createContext<PortfolioNavContextValue | null>(null);
@@ -63,6 +76,8 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
     position: [number, number, number];
     heading: number;
   } | null>(null);
+  const [exploreMode, setExploreMode] = useState(false);
+  const [projectExit, setProjectExit] = useState<"idle" | "takingOff" | "returning">("idle");
   const seagullAudioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
@@ -79,6 +94,8 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
 
   const requestNav = useCallback(
     (id: NavId) => {
+      setExploreMode(false);
+      setProjectExit("idle");
       if (id === "about") {
         setPendingNav(null);
         setActiveSection(id);
@@ -171,6 +188,8 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
   );
 
   const flyToMenu = useCallback(() => {
+    setExploreMode(false);
+    setProjectExit("idle");
     const p = getCameraPresets(orbitTargetY).menu;
     setPendingNav({
       mode: "menu",
@@ -187,6 +206,8 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
   }, [orbitTargetY]);
 
   const flyToDefault = useCallback(() => {
+    setExploreMode(false);
+    setProjectExit("idle");
     const p = getCameraPresets(orbitTargetY).default;
     setPendingNav({
       mode: "menu",
@@ -202,9 +223,47 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
     setExperienceCatPose(null);
   }, [orbitTargetY]);
 
-  const clearPendingNav = useCallback(() => setPendingNav(null), []);
+  const clearPendingNav = useCallback(() => {
+    setPendingNav(null);
+    setProjectExit((current) => (current === "returning" ? "idle" : current));
+  }, []);
 
-  const focusProjectBird = useCallback((id: string, position: [number, number, number]) => {
+  const closeProject = useCallback(() => {
+    setSelectedProjectId(null);
+    setProjectExit("takingOff");
+  }, []);
+
+  // Called by the flock once the bird has taken off: fly back to the overview, staying in the projects section.
+  const returnToOverview = useCallback(() => {
+    const p = getCameraPresets(orbitTargetY).default;
+    setProjectExit("returning");
+    setPendingNav({
+      mode: "section",
+      sectionId: "projects",
+      cameraPos: new THREE.Vector3(...p.position),
+      target: new THREE.Vector3(...p.target),
+      arc: true,
+    });
+  }, [orbitTargetY]);
+
+  const enterExplore = useCallback(() => {
+    setPendingNav(null);
+    setActiveSection(null);
+    setBoatPaused(false);
+    setBoatThoughtVisible(false);
+    setProjectBirdsVisible(false);
+    setSelectedProjectId(null);
+    setExperienceCatPose(null);
+    setExploreMode(true);
+  }, []);
+
+  const exitExplore = useCallback(() => {
+    setExploreMode(false);
+    setActiveSection(null);
+  }, []);
+
+  const focusProjectBird = useCallback((id: string, position: [number, number, number], options?: { perch?: boolean }) => {
+    const perch = options?.perch ?? false;
     const [bx, by, bz] = position;
     const outward = new THREE.Vector2(bx, bz);
     if (outward.lengthSq() < 0.0001) outward.set(1, 0);
@@ -221,18 +280,23 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
     const cameraRight = new THREE.Vector3().crossVectors(viewDir, new THREE.Vector3(0, 1, 0));
     if (cameraRight.lengthSq() < 0.0001) cameraRight.set(tangent.x, 0, tangent.y);
     cameraRight.normalize();
+    // A perched bird sits low on the island: keep it a bit closer to the frame centre (left of the panel).
+    const sideOffset = perch ? 2.8 : 3.6;
     const target = new THREE.Vector3(
-      bx + cameraRight.x * 3.6,
-      by - 0.6,
-      bz + cameraRight.z * 3.6
+      bx + cameraRight.x * sideOffset,
+      by - (perch ? 0.2 : 0.6),
+      bz + cameraRight.z * sideOffset
     );
 
+    setExploreMode(false);
+    setProjectExit("idle");
     setSelectedProjectId(id);
     setPendingNav({
       mode: "section",
       sectionId: "projects",
       cameraPos: camPos,
       target,
+      arc: perch,
     });
     setActiveSection(null);
     setBoatPaused(false);
@@ -274,6 +338,12 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
       setExperienceUnlockedCount,
       experienceCatPose,
       setExperienceCatPose,
+      exploreMode,
+      enterExplore,
+      exitExplore,
+      projectExit,
+      closeProject,
+      returnToOverview,
     }),
     [
       orbitTargetY,
@@ -293,6 +363,12 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
       experienceJourneyKey,
       experienceUnlockedCount,
       experienceCatPose,
+      exploreMode,
+      enterExplore,
+      exitExplore,
+      projectExit,
+      closeProject,
+      returnToOverview,
     ]
   );
 

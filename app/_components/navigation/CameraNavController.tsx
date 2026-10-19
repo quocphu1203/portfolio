@@ -7,6 +7,11 @@ import * as THREE from "three";
 import type { NavId } from "./portfolioNavData";
 import type { OrbitControlsInstance } from "../scene/FantasyIslandFitted";
 import { usePortfolioNav } from "./PortfolioNavContext";
+import { birdFollowRuntime } from "./birdFollowRuntime";
+import { exploreRuntime, resetExploreCamera } from "./exploreRuntime";
+
+const EXPLORE_FOCUS_HEIGHT = 0.32;
+const EXPLORE_CAMERA_MARGIN = 0.25;
 
 function easeInOutCubic(t: number) {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
@@ -20,7 +25,8 @@ export function CameraNavController({
   enabled: boolean;
 }) {
   const { camera } = useThree();
-  const { pendingNav, clearPendingNav, setActiveSection, activeSection, experienceCatPose } = usePortfolioNav();
+  const { pendingNav, clearPendingNav, setActiveSection, activeSection, experienceCatPose, exploreMode } =
+    usePortfolioNav();
 
   const anim = useRef<{
     fromP: THREE.Vector3;
@@ -30,7 +36,63 @@ export function CameraNavController({
     t: number;
     mode: "section" | "menu";
     sectionId?: NavId;
+    /** Camera restore after leaving explore mode. */
+    restore?: boolean;
+    arc?: boolean;
   } | null>(null);
+  const exploreWasOnRef = useRef(false);
+  const pendingNavRef = useRef(pendingNav);
+  const exploreToolsRef = useRef({
+    ray: new THREE.Raycaster(),
+    focus: new THREE.Vector3(),
+    dir: new THREE.Vector3(),
+    desired: new THREE.Vector3(),
+    allowedDist: 4.2,
+    pitch: 0.38,
+    smoothPitch: 0.38,
+    frame: 0,
+  });
+
+  useEffect(() => {
+    pendingNavRef.current = pendingNav;
+  }, [pendingNav]);
+
+  // Explore mode: remember the camera on enter, glide back to it on exit (unless another nav takes over).
+  useEffect(() => {
+    const ctrl = controlsRef.current;
+    if (exploreMode && !exploreWasOnRef.current) {
+      exploreWasOnRef.current = true;
+      resetExploreCamera();
+      exploreRuntime.saved = ctrl
+        ? { position: camera.position.clone(), target: ctrl.target.clone() }
+        : null;
+      anim.current = null;
+      exploreToolsRef.current.allowedDist = exploreRuntime.camDist;
+      exploreToolsRef.current.pitch = exploreRuntime.camPitch;
+      exploreToolsRef.current.smoothPitch = exploreRuntime.camPitch;
+      return;
+    }
+    if (!exploreMode && exploreWasOnRef.current) {
+      exploreWasOnRef.current = false;
+      const saved = exploreRuntime.saved;
+      exploreRuntime.saved = null;
+      if (!ctrl) return;
+      if (pendingNavRef.current || !saved) {
+        ctrl.enabled = true;
+        return;
+      }
+      ctrl.enabled = false;
+      anim.current = {
+        fromP: camera.position.clone(),
+        toP: saved.position,
+        fromT: ctrl.target.clone(),
+        toT: saved.target,
+        t: 0,
+        mode: "menu",
+        restore: true,
+      };
+    }
+  }, [exploreMode, camera, controlsRef]);
 
   useEffect(() => {
     if (!enabled || !pendingNav) return;
@@ -46,13 +108,76 @@ export function CameraNavController({
       t: 0,
       mode: pendingNav.mode,
       sectionId: pendingNav.sectionId,
+      arc: pendingNav.arc,
     };
   }, [enabled, pendingNav, camera, controlsRef]);
 
   useFrame((_, dt) => {
     if (!enabled) return;
     const ctrl = controlsRef.current;
+    if (exploreMode && ctrl) {
+      // Damped third-person follow; yaw/pitch/zoom come from drag/wheel input in explore mode.
+      if (!exploreRuntime.catReady) return;
+      const tools = exploreToolsRef.current;
+      const cat = exploreRuntime.catPos;
+      if (!exploreRuntime.camInitialised) {
+        exploreRuntime.camYaw = Math.atan2(camera.position.x - cat.x, camera.position.z - cat.z);
+        exploreRuntime.camInitialised = true;
+      }
+      if (exploreRuntime.followHeading && !exploreRuntime.dragging) {
+        const behind = exploreRuntime.catHeading + Math.PI;
+        const diff = Math.atan2(Math.sin(behind - exploreRuntime.camYaw), Math.cos(behind - exploreRuntime.camYaw));
+        exploreRuntime.camYaw += diff * (1 - Math.exp(-0.9 * dt));
+      }
+      const yaw = exploreRuntime.camYaw;
+      const focus = tools.focus.set(cat.x, cat.y + EXPLORE_FOCUS_HEIGHT, cat.z);
+      // When terrain hides the cat, first look from higher up, then pull the camera closer (checked every few frames).
+      tools.frame += 1;
+      if (tools.frame % 3 === 0) {
+        const basePitch = exploreRuntime.camPitch;
+        let chosenPitch = basePitch;
+        let allowed = exploreRuntime.camDist;
+        if (exploreRuntime.groundMeshes.length > 0) {
+          let bestDist = -1;
+          for (const pitchTry of [basePitch, basePitch + 0.3, basePitch + 0.6]) {
+            const p = Math.min(pitchTry, 1.3);
+            tools.dir.set(Math.sin(yaw) * Math.cos(p), Math.sin(p), Math.cos(yaw) * Math.cos(p));
+            tools.ray.set(focus, tools.dir);
+            tools.ray.far = exploreRuntime.camDist;
+            const hit = tools.ray.intersectObjects(exploreRuntime.groundMeshes, false)[0];
+            const free = hit ? Math.max(0.8, hit.distance - EXPLORE_CAMERA_MARGIN) : exploreRuntime.camDist;
+            if (free > bestDist + 0.05) {
+              bestDist = free;
+              chosenPitch = p;
+            }
+            if (!hit) break;
+          }
+          allowed = bestDist;
+        }
+        tools.allowedDist = allowed;
+        tools.pitch = chosenPitch;
+      }
+      tools.smoothPitch += (tools.pitch - tools.smoothPitch) * (1 - Math.exp(-3 * dt));
+      const pitch = tools.smoothPitch;
+      const dir = tools.dir.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+      const desired = tools.desired.copy(focus).addScaledVector(dir, tools.allowedDist);
+      camera.position.lerp(desired, 1 - Math.exp(-4.5 * dt));
+      ctrl.target.lerp(focus, 1 - Math.exp(-7 * dt));
+      ctrl.enabled = false;
+      // lookAt instead of ctrl.update(): update() would clamp to minDistance and push the camera into terrain.
+      camera.lookAt(ctrl.target);
+      return;
+    }
+    if (birdFollowRuntime.active && ctrl) {
+      // Closing a project: keep the camera in place and track the bird while it takes off.
+      if (anim.current) anim.current = null;
+      ctrl.target.lerp(birdFollowRuntime.position, 1 - Math.exp(-3 * dt));
+      ctrl.enabled = false;
+      camera.lookAt(ctrl.target);
+      return;
+    }
     if (activeSection === "credits" && experienceCatPose && ctrl) {
+      if (anim.current?.restore) anim.current = null;
       const [cx, cy, cz] = experienceCatPose.position;
       const radial = new THREE.Vector3(cx, 0, cz);
       if (radial.lengthSq() < 0.0001) radial.set(1, 0, 0);
@@ -80,7 +205,22 @@ export function CameraNavController({
     const u = Math.min(1, a.t);
     const k = easeInOutCubic(u);
 
-    camera.position.lerpVectors(a.fromP, a.toP, k);
+    if (a.arc) {
+      // Interpolate angle / radius / height around the island centre so the camera never cuts through it.
+      const fromAngle = Math.atan2(a.fromP.z, a.fromP.x);
+      const toAngle = Math.atan2(a.toP.z, a.toP.x);
+      const dAngle = Math.atan2(Math.sin(toAngle - fromAngle), Math.cos(toAngle - fromAngle));
+      const angle = fromAngle + dAngle * k;
+      const radius = THREE.MathUtils.lerp(Math.hypot(a.fromP.x, a.fromP.z), Math.hypot(a.toP.x, a.toP.z), k);
+      const lift = Math.sin(Math.PI * k) * 2;
+      camera.position.set(
+        Math.cos(angle) * radius,
+        THREE.MathUtils.lerp(a.fromP.y, a.toP.y, k) + lift,
+        Math.sin(angle) * radius
+      );
+    } else {
+      camera.position.lerpVectors(a.fromP, a.toP, k);
+    }
     ctrl.target.lerpVectors(a.fromT, a.toT, k);
     ctrl.update();
 

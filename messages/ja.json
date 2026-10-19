@@ -51,5 +51,17 @@
     "projectLearned": "学んだこと",
     "projectChallenges": "解決した課題",
     "projectLinks": "リンク"
+  },
+  "explore": {
+    "enter": "探索モード",
+    "exit": "探索を終了",
+    "hintDesktop": "WASD / 矢印キー、または地面をクリックで移動 · ドラッグで視点 · Escで終了",
+    "hintTouch": "地面をタップで移動 · ドラッグで視点",
+    "milestonePrompt": "見る: {title}"
+  },
+  "weather": {
+    "rainAuto": "雨: 自動",
+    "rainOn": "雨: オン",
+    "rainOff": "雨: オフ"
   }
 }
