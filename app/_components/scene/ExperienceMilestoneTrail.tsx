@@ -62,6 +62,9 @@ const CAT_EXPLORE_SLOW_RADIUS = 0.7;
 const CAT_EXPLORE_MAX_STEP_UP = 0.32;
 const CAT_EXPLORE_MAX_STEP_DOWN = 0.45;
 const CAT_EXPLORE_MIN_NORMAL_Y = 0.5;
+/** Max body tilt from the ground normal (radians): pitch along the heading, roll sideways. */
+const CAT_BODY_MAX_PITCH = 0.38;
+const CAT_BODY_MAX_ROLL = 0.1;
 const CAT_EXPLORE_WATER_MARGIN = 0.12;
 const MILESTONE_PROMPT_RADIUS = 0.85;
 // Intro (About): the cat runs into the camera view, sits facing the camera and wags its tail.
@@ -77,16 +80,36 @@ const INTRO_SCREEN_SAMPLES: [number, number][] = [
   [0.45, 0],
   [0, 0.15],
 ];
-const INTRO_CAM_DIST = 3.0;
+const INTRO_CAM_DIST = 2.75;
+/** Intro spots must be clearly on land: above the ocean by this much and inside the island. */
+const INTRO_MIN_ABOVE_WATER = 0.45;
+const INTRO_MAX_RADIUS = 11;
+/** Visible island ground meshes that are walkable but not tagged as physics colliders. */
+const WALKABLE_TERRAIN_NAMES = ["Object_232"];
 const INTRO_LOOK_HEIGHT = 0.18;
+// Timings: the cat waits at its start spot until the camera has (nearly) arrived, runs ~1.5-2s, sits ~1s.
+// Reduced motion shortens (not skips) the sequence.
 const INTRO_RUN_DISTANCES = [2.0, 1.4, 0.9];
-const INTRO_RUN_TIMEOUT = 5;
-const INTRO_SIT_SECONDS = 0.9;
-const INTRO_INIT_TIMEOUT = 1.5;
+const INTRO_RUN_DISTANCES_REDUCED = [1.2, 0.9];
+const INTRO_RUN_DELAY = 0.45;
+const INTRO_RUN_DELAY_REDUCED = 0.2;
+const INTRO_RUN_TIMEOUT = 6;
+const INTRO_SIT_SECONDS = 1.45;
+const INTRO_SIT_SECONDS_REDUCED = 0.9;
+const INTRO_EXPLORE_SIT_SECONDS = 1.45;
+const INTRO_INIT_TIMEOUT = 4;
 // Bone-local Y swings the tail sideways for this rig (measured: mostly lateral displacement).
 const TAIL_WAG_AXIS = new THREE.Vector3(0, 1, 0);
 const TAIL_WAG_AMPLITUDE = 0.2;
 const TAIL_WAG_SPEED = 7.5;
+// Procedural sit (the rig has no sit clip): additive rotations about the cat's lateral axis, eased in.
+// Angles in radians, positive = forward/down. Hind legs fold so the rump drops; the paw grounding then pitches
+// the body up (allowed up to CAT_SIT_MAX_PITCH) and the front legs / neck are counter-rotated to stay upright.
+const CAT_SIT_THIGH = -1.05;
+const CAT_SIT_SHIN = 1.75;
+const CAT_SIT_FOOT = -0.6;
+const CAT_SIT_MAX_PITCH = 0.62;
+const CAT_SIT_NECK_COUNTER = 0.55;
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
 const WORLD_DOWN = new THREE.Vector3(0, -1, 0);
 const PENNANT_OFFSET: [number, number, number] = [0.16, 0, 0.1];
@@ -377,7 +400,25 @@ function snapPointToDocSurface(pos: THREE.Vector3, meshes: THREE.Mesh[], offsetY
   return null;
 }
 
-// Orientation for the kinematic cat body: up = (smoothed) surface normal, facing along heading.
+/**
+ * Body "up" from the ground normal, limited so the cat stays upright: low-poly facets (walkable up to 60°) would
+ * otherwise tilt it onto its side, and it kept that tilt when it stopped. Pitch follows slopes moderately, roll barely.
+ */
+function catBodyUp(normal: THREE.Vector3, heading: number) {
+  const ny = normal.y;
+  if (!Number.isFinite(ny) || ny < 1e-3) return new THREE.Vector3(0, 1, 0);
+  const f = Math.sin(heading) * normal.x + Math.cos(heading) * normal.z;
+  const l = Math.cos(heading) * normal.x - Math.sin(heading) * normal.z;
+  const tf = Math.tan(THREE.MathUtils.clamp(Math.atan2(f, ny), -CAT_BODY_MAX_PITCH, CAT_BODY_MAX_PITCH));
+  const tl = Math.tan(THREE.MathUtils.clamp(Math.atan2(l, ny), -CAT_BODY_MAX_ROLL, CAT_BODY_MAX_ROLL));
+  return new THREE.Vector3(
+    tf * Math.sin(heading) + tl * Math.cos(heading),
+    1,
+    tf * Math.cos(heading) - tl * Math.sin(heading)
+  ).normalize();
+}
+
+// Orientation for the kinematic cat body: up = (smoothed, limited) surface normal, facing along heading.
 function catBodyQuaternion(up: THREE.Vector3, heading: number) {
   const headingForward = new THREE.Vector3(Math.sin(heading + Math.PI), 0, Math.cos(heading + Math.PI));
   const forwardProjected = headingForward.sub(up.clone().multiplyScalar(headingForward.dot(up)));
@@ -446,6 +487,15 @@ export function ExperienceMilestoneTrail() {
   const catBodyBoneRefs = useRef<THREE.Bone[]>([]);
   const catHeadBoneRefs = useRef<THREE.Bone[]>([]);
   const catTailBoneRefs = useRef<THREE.Bone[]>([]);
+  const catSitBonesRef = useRef<{ thighs: THREE.Bone[]; shins: THREE.Bone[]; feet: THREE.Bone[]; frontLegs: THREE.Bone[]; neck: THREE.Bone[] }>({
+    thighs: [],
+    shins: [],
+    feet: [],
+    frontLegs: [],
+    neck: [],
+  });
+  // Sit weight and the offsets applied last frame (undone before the next mixer update).
+  const catSitRef = useRef({ w: 0, applied: [] as { bone: THREE.Bone; axis: THREE.Vector3; angle: number }[] });
   // Last pose offsets added on top of the mixer output, so they can be undone before the next update.
   const catPoseOffsetRef = useRef({ body: 0, head: 0, tail: 0 });
   const catSpeedRef = useRef(0);
@@ -474,8 +524,10 @@ export function ExperienceMilestoneTrail() {
   const markerRef = useRef<THREE.Mesh | null>(null);
   // Intro (About) sequence state; `saved` restores the cat's previous spot/heading afterwards.
   const introRef = useRef({
-    stage: "off" as "off" | "init" | "run" | "sit",
+    stage: "off" as "off" | "init" | "place" | "run" | "sit",
     t: 0,
+    target: null as THREE.Vector3 | null,
+    spot: null as { target: THREE.Vector3; camPos: THREE.Vector3; toCam: THREE.Vector3 } | null,
     ready: false,
     placed: false,
     wag: 0,
@@ -538,11 +590,19 @@ export function ExperienceMilestoneTrail() {
     }
     return meshes;
   }, [worldScene, activeSection, experienceJourneyKey, exploreMode, introPhase]);
-  // Walkable surfaces for explore mode: terrain, path and rocks (visible originals only).
+  // Walkable surfaces for explore mode / intro: path, rocks and the visible grass terrain (visible originals only).
+  // The tagged "Object_231" is the island base below the ocean; the grass the cat should stand on is Object_232.
   const groundMeshes = useMemo(() => {
     const visible = wallMeshes.filter((mesh) => mesh.visible);
-    return visible.length > 0 ? visible : docMeshes;
-  }, [wallMeshes, docMeshes]);
+    if (visible.length === 0) return docMeshes;
+    for (const name of WALKABLE_TERRAIN_NAMES) {
+      worldScene.getObjectByName(name)?.traverse((child) => {
+        const mesh = child as THREE.Mesh;
+        if (mesh.isMesh && mesh.visible && !visible.includes(mesh)) visible.push(mesh);
+      });
+    }
+    return visible;
+  }, [wallMeshes, docMeshes, worldScene]);
 
   const progressMarks = useMemo(
     () => flagProgressMarks(experienceMilestones.length),
@@ -688,6 +748,19 @@ export function ExperienceMilestoneTrail() {
     }
     catHeadBoneRefs.current = headBones.slice(0, 2);
     catTailBoneRefs.current = tailBones;
+    {
+      const sit = { thighs: [] as THREE.Bone[], shins: [] as THREE.Bone[], feet: [] as THREE.Bone[], frontLegs: [] as THREE.Bone[], neck: [] as THREE.Bone[] };
+      catModel.traverse((child) => {
+        if (!(child instanceof THREE.Bone)) return;
+        const n = child.name;
+        if (/^leg_back_(left|right)_1_/.test(n)) sit.thighs.push(child);
+        else if (/^leg_back_(left|right)_2_/.test(n)) sit.shins.push(child);
+        else if (/^leg_back_(left|right)_3_/.test(n)) sit.feet.push(child);
+        else if (/^leg_front_(left|right)_1_/.test(n)) sit.frontLegs.push(child);
+        else if (/^neck_/.test(n)) sit.neck.push(child);
+      });
+      catSitBonesRef.current = sit;
+    }
 
     const isIdleClip = (clip: THREE.AnimationClip) => /idle|stand|breathe|rest/i.test(clip.name);
     const activeWalk =
@@ -715,6 +788,7 @@ export function ExperienceMilestoneTrail() {
       catBodyBoneRefs.current = [];
       catHeadBoneRefs.current = [];
       catTailBoneRefs.current = [];
+      catSitRef.current = { w: 0, applied: [] };
       catPoseOffsetRef.current = { body: 0, head: 0, tail: 0 };
       walkAction.stop();
       idleActionRef.current?.stop();
@@ -810,7 +884,10 @@ export function ExperienceMilestoneTrail() {
     }
     intro.saved = null;
     intro.stage = "off";
+    intro.spot = null;
+    intro.target = null;
     intro.wag = 0;
+    if (catGroundGroupRef.current) catGroundGroupRef.current.visible = true;
     const ex = exploreRef.current;
     ex.moveTarget = null;
     ex.speed = 0;
@@ -983,7 +1060,8 @@ export function ExperienceMilestoneTrail() {
     // Group rotation.x > 0 lifts the head end; settle pitch only while standing, relax it while running.
     g.pitch += ((cb - cf) / span) * (1 - runWeight) * kp;
     g.pitch *= 1 - runWeight * kp * 0.5;
-    g.pitch = THREE.MathUtils.clamp(g.pitch, -CAT_GROUND_MAX_PITCH, CAT_GROUND_MAX_PITCH);
+    const maxPitch = THREE.MathUtils.lerp(CAT_GROUND_MAX_PITCH, CAT_SIT_MAX_PITCH, catSitRef.current.w);
+    g.pitch = THREE.MathUtils.clamp(g.pitch, -maxPitch, maxPitch);
     const groundGroup = catGroundGroupRef.current;
     if (groundGroup) {
       groundGroup.position.y = g.y;
@@ -1139,7 +1217,7 @@ export function ExperienceMilestoneTrail() {
     const yawRate = delta > 0 ? wrapAngle(headingRef.current - prevHeading) / delta : 0;
     const leanAmount = THREE.MathUtils.clamp(yawRate * actualSpeed * CAT_TURN_LEAN, -CAT_MAX_LEAN, CAT_MAX_LEAN);
     const leanVec = new THREE.Vector3(Math.cos(headingRef.current), 0, -Math.sin(headingRef.current));
-    const up = surfaceNormalRef.current.clone().addScaledVector(leanVec, leanAmount).normalize();
+    const up = catBodyUp(surfaceNormalRef.current, headingRef.current).addScaledVector(leanVec, leanAmount).normalize();
     const q = catBodyQuaternion(up, headingRef.current);
     body.setNextKinematicTranslation({ x: pos.x, y: pos.y, z: pos.z });
     body.setNextKinematicRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
@@ -1186,33 +1264,77 @@ export function ExperienceMilestoneTrail() {
     return last;
   };
 
-  // Pick a walkable spot in the current view, a camera pose that sees it, and a start point the cat runs in from.
-  const introInit = () => {
-    const body = catBodyRef.current;
-    if (!body || groundMeshes.length === 0) return false;
+  // Shared helpers for the intro spot search: everything visible that can cover / hide the cat.
+  const introScene = () => {
+    const occluders = worldScene.children.filter(
+      (child) =>
+        child.name !== "experience-milestone-trail" && child.name !== "weather-effects" && child.name !== "project-bird-flock"
+    );
+    const ray = new THREE.Raycaster();
+    const dir = new THREE.Vector3();
+    const origin = new THREE.Vector3();
+    const walkable = new Set<THREE.Object3D>(groundMeshes);
+    const firstOpaque = (hits: THREE.Intersection[]) =>
+      hits.find((h) => {
+        const m = h.object as THREE.Mesh;
+        if (!m.visible) return false;
+        const mat = m.material as (THREE.Material & { uniforms?: Record<string, unknown> }) | undefined;
+        // The ocean counts as a surface (it hides whatever is below it) even if its material is transparent.
+        return Boolean(mat?.uniforms?.mirrorSampler) || !mat?.transparent;
+      });
+    /** Camera (or any point) can see `point` (+ look height) without trees / rocks / terrain in between. */
+    const seen = (from: THREE.Vector3, point: THREE.Vector3) => {
+      dir.set(point.x, point.y + INTRO_LOOK_HEIGHT, point.z).sub(from);
+      const dist = dir.length();
+      ray.set(from, dir.normalize());
+      ray.far = Math.max(0.1, dist - 0.2);
+      return !firstOpaque(ray.intersectObjects(occluders, true));
+    };
+    /**
+     * The walkable hit at (x, z) is really the top visible surface: nothing (visible ground that is not a collider,
+     * the ocean, a canopy) lies above it. Rejects spots under the shoreline water or inside the visible terrain.
+     */
+    const onTop = (point: THREE.Vector3) => {
+      ray.set(origin.set(point.x, point.y + 25, point.z), WORLD_DOWN);
+      ray.far = 25.4;
+      const top = firstOpaque(ray.intersectObjects(occluders, true));
+      return Boolean(top && walkable.has(top.object) && Math.abs(top.point.y - point.y) < 0.06);
+    };
+    return { occluders, ray, firstOpaque, seen, onTop, walkable };
+  };
+
+  /** Spot is on land: walkable, clearly above the ocean, inside the island and the top visible surface. */
+  const introSpotOk = (point: THREE.Vector3, tools: ReturnType<typeof introScene>) =>
+    point.y > waterLevelRef.current + INTRO_MIN_ABOVE_WATER && Math.hypot(point.x, point.z) < INTRO_MAX_RADIUS && tools.onTop(point);
+
+  // Frame 1: pick a spot on land in the current view and start the camera right away.
+  const introPickSpot = () => {
+    if (groundMeshes.length === 0) return null;
     const water = resolveWaterLevel(worldScene);
     waterLevelRef.current = water;
-    const ray = raycasterRef.current;
+    const tools = introScene();
     const ndc = new THREE.Vector2();
     const normal = new THREE.Vector3();
+    const camRay = new THREE.Raycaster();
     let target: THREE.Vector3 | null = null;
     for (const [x, y] of INTRO_SCREEN_SAMPLES) {
       ndc.set(x, y);
-      ray.setFromCamera(ndc, camera);
-      ray.far = 80;
-      const hit = ray.intersectObjects(groundMeshes, false)[0];
-      if (!hit || hit.point.y < water + 0.25) continue;
+      camRay.setFromCamera(ndc, camera);
+      camRay.far = 90;
+      // First visible surface along the view ray must be walkable island terrain (not water, not decoration).
+      const hit = tools.firstOpaque(camRay.intersectObjects(tools.occluders, true));
+      if (!hit || !tools.walkable.has(hit.object)) continue;
       if (hit.face) {
         normal.copy(hit.face.normal).transformDirection(hit.object.matrixWorld);
         if (Math.abs(normal.y) < 0.8) continue;
       }
       const ground = probeWalkable(hit.point.x, hit.point.z, hit.point.y + 0.05);
-      if (ground) {
+      if (ground && introSpotOk(ground.point, tools)) {
         target = ground.point.clone();
         break;
       }
     }
-    if (!target) return false;
+    if (!target) return null;
 
     const toCam = new THREE.Vector3(camera.position.x - target.x, 0, camera.position.z - target.z);
     if (toCam.lengthSq() < 1e-6) toCam.set(0, 0, 1);
@@ -1220,8 +1342,8 @@ export function ExperienceMilestoneTrail() {
     const look = target.clone().addScaledVector(WORLD_UP, INTRO_LOOK_HEIGHT);
     let camPos: THREE.Vector3 | null = null;
     const tryDir = new THREE.Vector3();
-    const sight = new THREE.Vector3();
-    for (const lift of [1.25, 2.0]) {
+    const ray = raycasterRef.current;
+    for (const lift of [1.0, 1.6]) {
       for (const da of [0, 0.4, -0.4, 0.8, -0.8, 1.2, -1.2]) {
         tryDir.copy(toCam).applyAxisAngle(WORLD_UP, da);
         const c = target.clone().addScaledVector(tryDir, INTRO_CAM_DIST).addScaledVector(WORLD_UP, lift);
@@ -1229,19 +1351,24 @@ export function ExperienceMilestoneTrail() {
         ray.far = 40;
         const under = ray.intersectObjects(groundMeshes, false)[0];
         if (under && under.point.y > c.y - 0.4) continue;
-        sight.copy(look).sub(c);
-        const dist = sight.length();
-        ray.set(c, sight.normalize());
-        ray.far = Math.max(0.1, dist - 0.15);
-        if (ray.intersectObjects(groundMeshes, false).length > 0) continue;
+        if (c.y < water + 0.5) continue;
+        if (!tools.seen(c, target)) continue;
         camPos = c;
         break;
       }
       if (camPos) break;
     }
-    if (!camPos) camPos = target.clone().addScaledVector(toCam, INTRO_CAM_DIST).addScaledVector(WORLD_UP, 2.6);
+    if (!camPos) camPos = target.clone().addScaledVector(toCam, INTRO_CAM_DIST).addScaledVector(WORLD_UP, 2.2);
+    introFrame(camPos, look);
+    return { target, camPos, toCam };
+  };
 
-    // Run in across the view (sideways, slightly from behind), falling back to any walkable direction.
+  // Frame 2: a start point the cat runs in from (whole run on land and visible), then place the cat there.
+  const introPlaceCat = (spot: { target: THREE.Vector3; camPos: THREE.Vector3; toCam: THREE.Vector3 }) => {
+    const body = catBodyRef.current;
+    if (!body) return false;
+    const { target, camPos, toCam } = spot;
+    const tools = introScene();
     const side = new THREE.Vector3(toCam.z, 0, -toCam.x);
     const away = toCam.clone().negate();
     const dirs = [
@@ -1251,16 +1378,37 @@ export function ExperienceMilestoneTrail() {
       side.clone().negate(),
       away.clone(),
     ];
+    const runOnLand = (from: THREE.Vector3, dir: THREE.Vector3, dist: number) => {
+      const end = walkableLine(from, dir, dist);
+      if (!end) return null;
+      // Every ~0.25 along the run: on land and the top visible surface (no wading through shallow water).
+      const probe = new THREE.Vector3();
+      for (let d = 0.25; d < dist; d += 0.25) {
+        const hit = probeWalkable(from.x + dir.x * d, from.z + dir.z * d, from.y + (end.y - from.y) * (d / dist));
+        if (!hit) return null;
+        probe.copy(hit.point);
+        if (!introSpotOk(probe, tools)) return null;
+      }
+      return introSpotOk(end, tools) ? end : null;
+    };
     let spawn: THREE.Vector3 | null = null;
-    for (const dist of INTRO_RUN_DISTANCES) {
+    let hiddenSpawn: THREE.Vector3 | null = null;
+    for (const dist of reducedMotion ? INTRO_RUN_DISTANCES_REDUCED : INTRO_RUN_DISTANCES) {
       for (const dir of dirs) {
-        spawn = walkableLine(target, dir, dist);
-        if (spawn) break;
+        const p = runOnLand(target, dir, dist);
+        if (!p) continue;
+        if (tools.seen(camPos, p) && tools.seen(camPos, p.clone().lerp(target, 0.5))) {
+          spawn = p;
+          break;
+        }
+        if (!hiddenSpawn) hiddenSpawn = p;
       }
       if (spawn) break;
     }
+    if (!spawn) spawn = hiddenSpawn;
     const start = spawn ?? target.clone();
     const pos = catPosRef.current;
+    // Feet on the terrain hit (same offset the explore / journey modes use).
     pos.copy(start);
     pos.y += DOC_SURFACE_OFFSET_Y;
     const toTarget = new THREE.Vector3(target.x - pos.x, 0, target.z - pos.z);
@@ -1275,7 +1423,9 @@ export function ExperienceMilestoneTrail() {
     ex.needsInit = false;
     ex.keys = { f: 0, b: 0, l: 0, r: 0 };
     ex.speed = 0;
-    ex.moveTarget = spawn ? target.clone() : null;
+    // The run starts shortly after (see introStep) while the camera is still closing in.
+    ex.moveTarget = null;
+    introRef.current.target = spawn ? target.clone() : null;
     catSpeedRef.current = 0;
     runningRef.current = false;
     if (idleActionRef.current && !idleActionRef.current.isRunning()) {
@@ -1288,18 +1438,20 @@ export function ExperienceMilestoneTrail() {
       walkActionRef.current.setEffectiveWeight(idleActionRef.current ? 0 : 1);
       walkActionRef.current.play();
     }
-    introFrame(camPos, look);
     return true;
   };
 
   const introStep = (delta: number) => {
     const intro = introRef.current;
     intro.t += delta;
+    const group = catGroundGroupRef.current;
     if (intro.stage === "init") {
-      if (introInit()) {
-        intro.placed = true;
-        intro.stage = "run";
-        intro.t = 0;
+      // Keep the cat hidden until it stands on its start spot (no flash at its old / default position).
+      if (group) group.visible = false;
+      const spot = introPickSpot();
+      if (spot) {
+        intro.spot = spot;
+        intro.stage = "place";
       } else if (intro.t > INTRO_INIT_TIMEOUT) {
         // No usable spot in view: just open the dialog.
         intro.stage = "sit";
@@ -1308,11 +1460,32 @@ export function ExperienceMilestoneTrail() {
       }
       return;
     }
+    if (intro.stage === "place") {
+      if (!intro.spot || !introPlaceCat(intro.spot)) {
+        if (intro.t > INTRO_INIT_TIMEOUT) {
+          intro.stage = "sit";
+          intro.ready = true;
+          introReady();
+        }
+        return;
+      }
+      intro.spot = null;
+      intro.placed = true;
+      intro.stage = "run";
+      intro.t = 0;
+      if (group) group.visible = true;
+      return;
+    }
     if (!intro.placed) return;
     const ex = exploreRef.current;
     if (intro.stage === "run") {
+      const delay = reducedMotion ? INTRO_RUN_DELAY_REDUCED : INTRO_RUN_DELAY;
+      if (intro.target && intro.t >= delay) {
+        ex.moveTarget = intro.target;
+        intro.target = null;
+      }
       exploreStep(delta);
-      if ((!ex.moveTarget && ex.speed < 0.05) || intro.t > INTRO_RUN_TIMEOUT) {
+      if ((!intro.target && !ex.moveTarget && ex.speed < 0.05 && intro.t >= delay) || intro.t > INTRO_RUN_TIMEOUT) {
         ex.moveTarget = null;
         intro.stage = "sit";
         intro.t = 0;
@@ -1324,7 +1497,31 @@ export function ExperienceMilestoneTrail() {
     const facing = Math.atan2(camera.position.x - pos.x, camera.position.z - pos.z) + 0.45;
     headingRef.current += wrapAngle(facing - headingRef.current) * (1 - Math.exp(-4 * delta));
     exploreStep(delta);
-    if (!intro.ready && intro.t > INTRO_SIT_SECONDS) {
+    if (!intro.ready && intro.t > (reducedMotion ? INTRO_SIT_SECONDS_REDUCED : INTRO_SIT_SECONDS)) {
+      intro.ready = true;
+      introReady();
+    }
+  };
+
+  // Explore mode + About: the cat stops where it is, turns to the camera and wags, then the dialog opens.
+  const exploreIntroStep = (delta: number) => {
+    const intro = introRef.current;
+    if (intro.stage !== "sit") {
+      intro.stage = "sit";
+      intro.t = 0;
+      intro.ready = false;
+    }
+    intro.t += delta;
+    const ex = exploreRef.current;
+    const keys = ex.keys;
+    ex.keys = { f: 0, b: 0, l: 0, r: 0 };
+    ex.moveTarget = null;
+    const pos = catPosRef.current;
+    const facing = Math.atan2(camera.position.x - pos.x, camera.position.z - pos.z) + 0.45;
+    headingRef.current += wrapAngle(facing - headingRef.current) * (1 - Math.exp(-4 * delta));
+    exploreStep(delta);
+    ex.keys = keys;
+    if (!intro.ready && intro.t > (reducedMotion ? INTRO_SIT_SECONDS_REDUCED : INTRO_EXPLORE_SIT_SECONDS)) {
       intro.ready = true;
       introReady();
     }
@@ -1335,9 +1532,16 @@ export function ExperienceMilestoneTrail() {
       // AnimationMixer skips writing tracks whose value did not change (e.g. constant idle channels),
       // so undo last frame's additive offsets first; otherwise they accumulate and the cat tumbles.
       const offset = catPoseOffsetRef.current;
-      for (const bodyBone of catBodyBoneRefs.current) bodyBone.rotateX(-offset.body);
-      for (const headBone of catHeadBoneRefs.current) headBone.rotateX(-offset.head);
+      // Undo in reverse order of application: sit, tail, head, body.
+      const sit = catSitRef.current;
+      for (let k = sit.applied.length - 1; k >= 0; k -= 1) {
+        const a = sit.applied[k];
+        a.bone.rotateOnAxis(a.axis, -a.angle);
+      }
+      sit.applied = [];
       for (const tailBone of catTailBoneRefs.current) tailBone.rotateOnAxis(TAIL_WAG_AXIS, -offset.tail);
+      for (const headBone of catHeadBoneRefs.current) headBone.rotateX(-offset.head);
+      for (const bodyBone of catBodyBoneRefs.current) bodyBone.rotateX(-offset.body);
       const walkAction = walkActionRef.current;
       const idleAction = idleActionRef.current;
       const speed = catSpeedRef.current;
@@ -1357,15 +1561,46 @@ export function ExperienceMilestoneTrail() {
       for (const headBone of catHeadBoneRefs.current) headBone.rotateX(offset.head);
       // Tail wag while the intro cat sits (additive bone offset, eased in/out).
       const intro = introRef.current;
-      const wagTarget = introActive && intro.stage === "sit" ? 1 : 0;
+      const wagTarget = (introActive || (exploreMode && introPhase !== "idle")) && intro.stage === "sit" ? 1 : 0;
       intro.wag += (wagTarget - intro.wag) * (1 - Math.exp(-3 * delta));
       intro.wagTime += delta;
       offset.tail = intro.wag > 0.001 ? Math.sin(intro.wagTime * TAIL_WAG_SPEED) * TAIL_WAG_AMPLITUDE * intro.wag : 0;
       for (const tailBone of catTailBoneRefs.current) tailBone.rotateOnAxis(TAIL_WAG_AXIS, offset.tail);
+      // Sit pose while the intro cat rests (eased; only once it has stopped running).
+      sit.w += ((wagTarget > 0 ? 1 - walkWeight : 0) - sit.w) * (1 - Math.exp(-(wagTarget > 0 ? 5 : 8) * delta));
+      if (sit.w > 0.002 && catGroundGroupRef.current) {
+        catGroundGroupRef.current.updateMatrixWorld(true);
+        const h = headingRef.current;
+        const lateral = new THREE.Vector3(Math.cos(h), 0, -Math.sin(h));
+        const q = new THREE.Quaternion();
+        const bones = catSitBonesRef.current;
+        const plan: [THREE.Bone[], number][] = [
+          [bones.thighs, CAT_SIT_THIGH],
+          [bones.shins, CAT_SIT_SHIN],
+          [bones.feet, CAT_SIT_FOOT],
+          // Body pitch comes from the grounding group (rotation.x > 0 lifts the head): keep front legs vertical.
+          [bones.frontLegs, catGroundRef.current.pitch],
+          [bones.neck, catGroundRef.current.pitch * CAT_SIT_NECK_COUNTER],
+        ];
+        // Every rotation is about the same world axis, so axes computed from the unposed bones stay valid.
+        const axes = plan.map(([list]) => list.map((bone) => lateral.clone().applyQuaternion(bone.getWorldQuaternion(q).invert()).normalize()));
+        plan.forEach(([list, angle], pi) => {
+          list.forEach((bone, bi) => {
+            const a = angle * sit.w;
+            bone.rotateOnAxis(axes[pi][bi], a);
+            sit.applied.push({ bone, axis: axes[pi][bi], angle: a });
+          });
+        });
+      }
       groundPaws(walkWeight, delta);
     }
     if (exploreMode) {
-      exploreStep(Math.min(delta, 0.1));
+      if (introPhase !== "idle") {
+        exploreIntroStep(Math.min(delta, 0.1));
+      } else {
+        if (introRef.current.stage !== "off" && !introActive) introRef.current.stage = "off";
+        exploreStep(Math.min(delta, 0.1));
+      }
       return;
     }
     if (introActive) {
@@ -1403,6 +1638,8 @@ export function ExperienceMilestoneTrail() {
               .clone()
               .transformDirection(floorHits[0].object.matrixWorld)
               .normalize();
+            // The path mesh is double-sided: a flipped face reports a downward normal (would tip the cat over).
+            if (faceNormal.y < 0) faceNormal.negate();
             const normalSmooth = 1 - Math.exp(-8 * delta);
             surfaceNormalRef.current.lerp(faceNormal, normalSmooth).normalize();
           }
@@ -1470,7 +1707,7 @@ export function ExperienceMilestoneTrail() {
 
       catPosRef.current.copy(smoothedPos);
       body.setNextKinematicTranslation({ x: smoothedPos.x, y: smoothedPos.y, z: smoothedPos.z });
-      const up = surfaceNormalRef.current.clone().addScaledVector(leanVec, leanAmount).normalize();
+      const up = catBodyUp(surfaceNormalRef.current, headingRef.current).addScaledVector(leanVec, leanAmount).normalize();
       const headingForward = new THREE.Vector3(
         Math.sin(headingRef.current + Math.PI),
         0,

@@ -43,11 +43,13 @@ export function ExploreControls({
   useEffect(() => {
     if (!exploreMode) return;
     const onKey = (e: KeyboardEvent) => {
-      // With a panel open, Esc closes the panel first (handled by PortfolioInfoPanel).
+      // With a panel open, Esc closes the panel first (handled by PortfolioInfoPanel / the dialog).
       if (e.key === "Escape" && !activeSection) exitExplore();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // Capture phase: run before the dialog's own Escape handling. Otherwise the dialog closes, this effect
+    // re-registers with no active section during the same keypress, and Esc would also leave explore mode.
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [exploreMode, activeSection, exitExplore]);
 
   if (!visible) return null;

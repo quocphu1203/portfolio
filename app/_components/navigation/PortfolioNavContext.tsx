@@ -2,6 +2,7 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import { computeSkillsFraming } from "./skillsFraming";
 
 import { getCameraPresets, type NavId } from "./portfolioNavData";
 
@@ -52,7 +53,7 @@ type PortfolioNavContextValue = {
   exitExplore: () => void;
   /**
    * Intro (About): "approach" while the cat runs into view and sits (camera frames it), then "open" with the
-   * dialog shown. Skipped (dialog opens directly) when the cat is busy (explore mode / experience journey).
+   * dialog shown. Every way of opening About goes through it; in explore mode the cat sits + wags where it is.
    */
   introPhase: "idle" | "approach" | "open";
   /** Camera framing for the intro cat (called by the cat once it picked its spot). */
@@ -115,19 +116,18 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
     (id: NavId) => {
       setHighlightedSkill(null);
       if (id === "about" && exploreMode) {
-        // The player is driving the cat: keep explore mode and just show the dialog.
-        setIntroPhase("idle");
-        setActiveSection(id);
+        // The player is driving the cat: keep explore mode; the cat stops, sits and wags, then the dialog opens.
+        setIntroPhase("approach");
+        setActiveSection(null);
         return;
       }
-      // Mid-journey on the experience trail the cat is busy too: open the dialog directly.
-      const catBusy = activeSection === "credits";
       setExploreMode(false);
       setProjectExit("idle");
-      setIntroPhase(id === "about" && !catBusy ? "approach" : "idle");
+      // Always the cat sequence (also when coming from the experience journey: the cat leaves the trail).
+      setIntroPhase(id === "about" ? "approach" : "idle");
       if (id === "about") {
         setPendingNav(null);
-        setActiveSection(catBusy ? id : null);
+        setActiveSection(null);
         setBoatPaused(false);
         setBoatThoughtVisible(false);
         setProjectBirdsVisible(false);
@@ -154,27 +154,8 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
       }
 
       if (id === "articles" && boatPose) {
-        const [bx, by, bz] = boatPose.position;
-        const outward = new THREE.Vector2(bx, bz);
-        if (outward.lengthSq() < 0.0001) outward.set(1, 0);
-        outward.normalize();
-        const tangent = new THREE.Vector2(outward.y, -outward.x);
-
-        // Keep the camera on the ocean side of the boat so island terrain
-        // does not block or clip the skills framing.
-        const camX = bx + outward.x * 13.5 + tangent.x * 4.2;
-        const camZ = bz + outward.y * 13.5 + tangent.y * 4.2;
-        const camPos = new THREE.Vector3(
-          camX,
-          by + 5.2,
-          camZ
-        );
-        const target = new THREE.Vector3(
-          bx + tangent.x * 3.8,
-          // Aim a little higher so the roof crates and the visiting birds above them stay in frame.
-          by + 3.0,
-          bz + tangent.y * 3.8
-        );
+        // Boat + open crates centred in the screen area the skills panel leaves free.
+        const { cameraPos: camPos, target } = computeSkillsFraming(boatPose.position);
         setPendingNav({
           mode: "section",
           sectionId: id,
@@ -214,7 +195,7 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
       setProjectBirdsVisible(false);
       setSelectedProjectId(null);
     },
-    [boatPose, orbitTargetY, exploreMode, activeSection]
+    [boatPose, orbitTargetY, exploreMode]
   );
 
   const flyToMenu = useCallback(() => {
@@ -296,6 +277,13 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
   const exitExplore = useCallback(() => {
     setExploreMode(false);
     setActiveSection(null);
+    setIntroPhase("idle");
+  }, []);
+
+  // Closing the About dialog without a camera move (explore mode) also ends the intro.
+  const setActiveSectionAndIntro = useCallback((id: NavId | null) => {
+    setActiveSection(id);
+    if (id !== "about") setIntroPhase((phase) => (phase === "open" ? "idle" : phase));
   }, []);
 
   const openProjectFromSkill = useCallback(
@@ -386,7 +374,7 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
       requestNav,
       clearPendingNav,
       activeSection,
-      setActiveSection,
+      setActiveSection: setActiveSectionAndIntro,
       flyToMenu,
       flyToDefault,
       boatPose,
@@ -424,6 +412,7 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
       requestNav,
       clearPendingNav,
       activeSection,
+      setActiveSectionAndIntro,
       flyToMenu,
       flyToDefault,
       boatPose,

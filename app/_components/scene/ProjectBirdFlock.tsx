@@ -71,9 +71,9 @@ const PERCH_MIN_ABOVE_WATER = 0.3;
 const MAX_BANK = 0.55;
 /** Skill highlight: matching birds fly from the sky to a small circle over the boat (and back out). */
 const SKILL_VISIT_SECONDS = 1.6;
-const SKILL_ORBIT_RADIUS = 2.5;
+const SKILL_ORBIT_RADIUS = 3.0;
 /** Above the cabin-roof crates (roof is ~4.3 above the boat origin), so birds never hide the boat. */
-const SKILL_ORBIT_HEIGHT = 5.5;
+const SKILL_ORBIT_HEIGHT = 6.6;
 const SKILL_ORBIT_SPEED = 0.85;
 const SKILL_HIGHLIGHT_SCALE = 1.15;
 const UP = new THREE.Vector3(0, 1, 0);
@@ -469,11 +469,9 @@ export function ProjectBirdFlock() {
     const outward = tools.a.set(boat[0], 0, boat[2]);
     if (outward.lengthSq() < 1e-6) outward.set(1, 0, 0);
     outward.normalize();
-    // The boat is framed left of the dialog: shift the circle a bit toward screen centre (camera right).
-    camera.getWorldDirection(tools.tangent);
-    const shift = tools.tangent.set(-tools.tangent.z, 0, tools.tangent.x).normalize().multiplyScalar(1.4);
-    const cx = boat[0] + shift.x;
-    const cz = boat[2] + shift.z;
+    // The Skills camera centres the boat in the free screen area, so the circle stays centred on the boat.
+    const cx = boat[0];
+    const cz = boat[2];
     birdRefs.current.forEach((bird, i) => {
       if (!bird) return;
       const project = projectBirdItems[i];
