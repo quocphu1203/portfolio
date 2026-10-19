@@ -1667,7 +1667,9 @@ export function ExperienceMilestoneTrail() {
               ? new THREE.Vector3(n.x, n.y, n.z).normalize()
               : new THREE.Vector3(-dir.x, 0, -dir.z).normalize();
             const hitPoint = rayOrigin.clone().addScaledVector(dir, Math.max(0, toi));
-            desiredPos.copy(hitPoint).addScaledVector(normal, CAT_COLLISION_RADIUS + 0.01);
+            const remaining = desiredPos.clone().sub(hitPoint);
+            const slide = remaining.addScaledVector(normal, -remaining.dot(normal));
+            desiredPos.copy(hitPoint).addScaledVector(normal, CAT_COLLISION_RADIUS + 0.01).add(slide);
             collisionResolved = true;
           }
         }
@@ -1680,7 +1682,9 @@ export function ExperienceMilestoneTrail() {
             const hit = hits[0];
             if (hit.face) {
               const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize();
-              desiredPos.copy(hit.point).addScaledVector(normal, CAT_COLLISION_RADIUS);
+              const remaining = desiredPos.clone().sub(hit.point);
+              const slide = remaining.addScaledVector(normal, -remaining.dot(normal));
+              desiredPos.copy(hit.point).addScaledVector(normal, CAT_COLLISION_RADIUS).add(slide);
             } else {
               desiredPos.copy(currentPos);
             }
