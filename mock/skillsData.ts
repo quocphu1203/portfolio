@@ -103,7 +103,7 @@ export const SKILL_GROUPS: SkillGroup[] = [
     icon: "</>",
     items: [
       { id: "cpp", label: "C++", usedIn: [] },
-      { id: "java", label: "Java", usedIn: [] },
+      { id: "java", label: "Java", usedIn: ["java"] },
       { id: "php", label: "PHP", usedIn: ["php", "laravel"] },
       { id: "kotlin", label: "Kotlin", usedIn: ["kotlin"] },
       // JavaScript is not listed explicitly; assumed for React / React Native / Next.js / Vite projects.

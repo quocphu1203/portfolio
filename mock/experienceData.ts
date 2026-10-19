@@ -33,44 +33,107 @@ const EXPERIENCE_SECTION_BY_LOCALE: Record<AppLocale, InfoSection> = {
 const EXPERIENCE_MILESTONES_BY_LOCALE: Record<AppLocale, ExperienceMilestone[]> = {
   en: [
     {
-      id: "intern",
-      period: "2024-Present",
-      title: "Project Leader",
+      id: "intern-gld-lab",
+      period: "10/2024 - 07/2026",
+      title: "Intern",
       company: "GLD-LAB",
       summary: formatExperienceSummary(
-        "I work as a project leader, connecting the company side with the development team. My role starts from receiving requirements, clarifying unclear points, breaking work into manageable tasks, and making sure each member understands the expected outcome before implementation begins.",
-        "Alongside coordination, I also contribute directly to development. I have worked on web and mobile features using Next.js, React Native, Node.js, and PostgreSQL, while reviewing progress, checking blockers, and adjusting priorities when the project changes.",
-        "This role helped me grow in both technical execution and team operation: requirement reading, task planning, communication, progress tracking, code contribution, and keeping the product direction consistent across the team."
+        "As the team leader of the intern group, I helped turn requirements into an actionable development plan, coordinated day-to-day work, and divided tasks according to each member's strengths.",
+        "Alongside leadership responsibilities, I contributed directly to web and mobile development. I facilitated code reviews, exchanged implementation feedback, and supported the team in improving both code quality and problem-solving skills."
       ),
-      skills: ["Project planning", "Requirement analysis", "Next.js", "React Native", "Node.js", "PostgreSQL"],
+      skills: ["Requirements analysis", "Task planning", "Team leadership", "Code review", "Mentoring", "Next.js", "React Native", "Node.js", "PostgreSQL"],
+    },
+    {
+      id: "full-time-vietnam",
+      period: "07/2026 - 08/2026",
+      title: "Full-time Employee",
+      company: "GLD-LAB Vietnam",
+      summary: formatExperienceSummary(
+        "I worked directly with the Japan-based team throughout the development lifecycle, using Japanese to clarify requirements, discuss implementation details, and maintain smooth day-to-day collaboration.",
+        "In parallel, I supported the next intern cohort by sharing technical context, explaining the team's workflow, and helping new members build confidence in their development responsibilities."
+      ),
+      skills: ["Requirements analysis", "Japanese communication", "Cross-cultural collaboration", "Technical mentoring", "Agile teamwork", "Next.js", "React Native", "Node.js", "PostgreSQL"],
+    },
+    {
+      id: "gld-lab-japan",
+      period: "08/2026 - Present",
+      title: "Employee",
+      company: "GLD-LAB, Tottori, Japan",
+      summary: formatExperienceSummary(
+        "Working directly in Tottori, Japan, I act as a bridge between the Vietnam and Japan teams, helping both sides maintain a shared understanding of product goals, requirements, and delivery priorities.",
+        "I also provide technical support to the Japan-based team by clarifying development issues, coordinating with engineers in Vietnam, and helping turn business expectations into practical implementation steps."
+      ),
+      skills: ["Requirements analysis", "Technical coordination", "Bridge SE communication", "Cross-cultural collaboration", "Technical support", "Japanese communication", "Next.js", "React Native", "Node.js", "PostgreSQL"],
     },
   ],
   ja: [
     {
-      id: "intern",
-      period: "2024-現在",
-      title: "Project Leader",
+      id: "intern-gld-lab",
+      period: "2024年10月 - 2026年7月",
+      title: "インターン",
       company: "GLD-LAB",
       summary: formatExperienceSummary(
-        "プロジェクトリーダーとして、企業側と開発チームの橋渡しを担当しています。要件を受け取り、不明点を確認し、作業をタスクに分解し、実装前に各メンバーが成果物のイメージを共有できるようにしています。",
-        "進行管理だけでなく、開発にも直接参加しています。Next.js、React Native、Node.js、PostgreSQLを使ったWeb・モバイル機能の実装に関わりながら、進捗確認、課題の把握、優先順位の調整も行っています。",
-        "この経験を通じて、要件理解、タスク設計、チーム内コミュニケーション、進捗管理、コード実装、プロダクト全体の方向性を保つ力を伸ばしました。"
+        "インターンチームのリーダーとして、要件を具体的な開発計画へ落とし込み、日々の進行を調整し、メンバーの強みに合わせてタスクを分担しました。",
+        "リーダー業務と並行してWeb・モバイル開発にも直接参加し、コードレビューや実装に関する意見交換を通じて、コード品質と問題解決力の向上を支援しました。"
       ),
-      skills: ["Project planning", "Requirement analysis", "Next.js", "React Native", "Node.js", "PostgreSQL"],
+      skills: ["要件分析", "タスク設計", "チームリーダーシップ", "コードレビュー", "メンタリング", "Next.js", "React Native", "Node.js", "PostgreSQL"],
+    },
+    {
+      id: "full-time-vietnam",
+      period: "2026年7月 - 2026年8月",
+      title: "正社員",
+      company: "GLD-LAB ベトナム",
+      summary: formatExperienceSummary(
+        "日本側のチームと開発ライフサイクル全体に直接参加し、日本語で要件を確認し、実装方針を話し合い、日々の連携を進めました。",
+        "同時に、後輩のインターンメンバーへ技術的な背景やチームの進め方を共有し、開発業務へスムーズに適応できるよう支援しました。"
+      ),
+      skills: ["要件分析", "日本語コミュニケーション", "異文化協働", "技術メンタリング", "アジャイル開発", "Next.js", "React Native", "Node.js", "PostgreSQL"],
+    },
+    {
+      id: "gld-lab-japan",
+      period: "2026年8月 - 現在",
+      title: "社員",
+      company: "GLD-LAB 鳥取・日本",
+      summary: formatExperienceSummary(
+        "鳥取で日本側のチームと直接働きながら、ベトナムと日本のチームをつなぎ、プロダクトの目的、要件、優先順位について共通認識をつくる役割を担っています。",
+        "開発上の課題を整理し、ベトナム側のエンジニアと連携しながら、日本側の期待を実装可能な開発ステップへ落とし込む技術サポートも行っています。"
+      ),
+      skills: ["要件分析", "技術調整", "ブリッジSE業務", "異文化協働", "技術サポート", "日本語コミュニケーション", "Next.js", "React Native", "Node.js", "PostgreSQL"],
     },
   ],
   vi: [
     {
-      id: "intern",
-      period: "2024-Nay",
-      title: "Project Leader",
+      id: "intern-gld-lab",
+      period: "10/2024 - 07/2026",
+      title: "Intern",
       company: "GLD-LAB",
       summary: formatExperienceSummary(
-        "Mình đảm nhận vai trò Project Leader, làm cầu nối giữa phía công ty và nhóm phát triển. Công việc bắt đầu từ việc tiếp nhận yêu cầu, làm rõ những điểm chưa rõ, chia nhỏ đầu việc và truyền đạt lại cho từng thành viên để mọi người hiểu đúng mục tiêu trước khi bắt tay vào code.",
-        "Bên cạnh việc điều phối, mình cũng tham gia trực tiếp vào phát triển sản phẩm. Mình đã làm các phần web và mobile với Next.js, React Native, Node.js và PostgreSQL, đồng thời theo dõi tiến độ, kiểm tra blocker, điều chỉnh ưu tiên khi yêu cầu hoặc tình hình dự án thay đổi.",
-        "Vai trò này giúp mình phát triển cả kỹ năng kỹ thuật lẫn cách vận hành team: đọc hiểu yêu cầu, lập kế hoạch task, giao tiếp với stakeholder, theo dõi tiến độ, tham gia code và giữ cho hướng phát triển sản phẩm nhất quán với mục tiêu ban đầu."
+        "Mình giữ vai trò Team Leader của nhóm intern, phụ trách chuyển yêu cầu thành kế hoạch phát triển rõ ràng, điều phối công việc hằng ngày và phân chia nhiệm vụ dựa trên thế mạnh của từng thành viên.",
+        "Bên cạnh vai trò dẫn dắt, mình vẫn trực tiếp tham gia phát triển web và mobile. Mình tổ chức code review, trao đổi về hướng triển khai và hỗ trợ cả nhóm nâng cao chất lượng mã nguồn cũng như khả năng giải quyết vấn đề."
       ),
-      skills: ["Project planning", "Requirement analysis", "Next.js", "React Native", "Node.js", "PostgreSQL"],
+      skills: ["Phân tích tài liệu yêu cầu", "Lập kế hoạch task", "Team Leadership", "Code Review", "Mentoring", "Next.js", "React Native", "Node.js", "PostgreSQL"],
+    },
+    {
+      id: "full-time-vietnam",
+      period: "07/2026 - 08/2026",
+      title: "Nhân viên chính thức",
+      company: "GLD-LAB tại Việt Nam",
+      summary: formatExperienceSummary(
+        "Mình trực tiếp tham gia phát triển cùng đội ngũ Nhật Bản trong toàn bộ vòng đời dự án, sử dụng tiếng Nhật để xác nhận yêu cầu, trao đổi chi tiết triển khai và duy trì phối hợp hằng ngày.",
+        "Song song đó, mình hướng dẫn các thành viên khóa sau bằng cách chia sẻ bối cảnh kỹ thuật, giải thích quy trình làm việc và hỗ trợ các bạn tự tin hơn khi đảm nhận nhiệm vụ phát triển."
+      ),
+      skills: ["Phân tích tài liệu yêu cầu", "Giao tiếp tiếng Nhật", "Làm việc đa văn hóa", "Technical Mentoring", "Agile Teamwork", "Next.js", "React Native", "Node.js", "PostgreSQL"],
+    },
+    {
+      id: "gld-lab-japan",
+      period: "08/2026 - Nay",
+      title: "Nhân viên",
+      company: "GLD-LAB tại Tottori, Nhật Bản",
+      summary: formatExperienceSummary(
+        "Mình làm việc trực tiếp tại Tottori, Nhật Bản và đảm nhận vai trò cầu nối giữa đội ngũ Việt Nam và Nhật Bản, giúp hai bên thống nhất về mục tiêu sản phẩm, yêu cầu và thứ tự ưu tiên.",
+        "Mình hỗ trợ kỹ thuật cho phía Nhật Bản bằng cách làm rõ vấn đề phát triển, phối hợp với kỹ sư tại Việt Nam và chuyển hóa kỳ vọng nghiệp vụ thành các bước triển khai thực tế."
+      ),
+      skills: ["Phân tích tài liệu yêu cầu", "Điều phối kỹ thuật", "Bridge SE", "Làm việc đa văn hóa", "Technical Support", "Giao tiếp tiếng Nhật", "Next.js", "React Native", "Node.js", "PostgreSQL"],
     },
   ],
 };
