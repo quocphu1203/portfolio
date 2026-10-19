@@ -27,7 +27,9 @@ const CAT_POSE_UPDATE_INTERVAL_MS = 50;
 const CAT_MOVE_SMOOTHNESS = 14;
 const CAT_ROTATE_SMOOTHNESS = 9;
 // Extra body dip / head lift layered on the run clip (scaled by run weight, so idle is unaffected).
-const CAT_BODY_DIP_X = -0.12;
+// Body dip is 0: it rotates pelvis_01, which carries the front legs but not the back legs, so any dip
+// pushed the front paws into the ground.
+const CAT_BODY_DIP_X = 0;
 const CAT_HEAD_LIFT_X = 0.18;
 // Journey speed profile (world units / seconds): smooth accelerate -> cruise -> decelerate to a stop.
 const CAT_CRUISE_SPEED = 1.3;
@@ -39,6 +41,12 @@ const CAT_CLIP_GROUND_SPEED = 1.05;
 // Speed below which the run clip blends into Idle_Stand (~0.5s blend during the decel ramp).
 const CAT_WALK_BLEND_SPEED = 0.6;
 const CAT_LOOKAHEAD = 0.18;
+// Paw grounding: keep the lowest front/back paw vertices on the terrain (world units / radians).
+const CAT_PAW_GROUND_EPS = 0.003;
+const CAT_GROUND_MAX_OFFSET = 0.1;
+const CAT_GROUND_MAX_PITCH = 0.2;
+// Resting offset while running: cancels the clip's floor height (lowest paw ~0.75 model units) + DOC_SURFACE_OFFSET_Y.
+const CAT_RUN_GROUND_BASE = -(DOC_SURFACE_OFFSET_Y + 0.75 * CAT_SCALE - CAT_PAW_GROUND_EPS);
 const CAT_TURN_LEAN = 0.05;
 const CAT_MAX_LEAN = 0.09;
 const TORCH_SCALE = 0.35;
@@ -379,6 +387,10 @@ export function ExperienceMilestoneTrail() {
   // Last pose offsets added on top of the mixer output, so they can be undone before the next update.
   const catPoseOffsetRef = useRef({ body: 0, head: 0 });
   const catSpeedRef = useRef(0);
+  // Paw vertex indices (front / back) of the skinned cat, and the grounding correction applied to the model.
+  const catPawRef = useRef<{ mesh: THREE.SkinnedMesh | null; front: number[]; back: number[] }>({ mesh: null, front: [], back: [] });
+  const catGroundRef = useRef({ y: 0, pitch: 0 });
+  const catGroundGroupRef = useRef<THREE.Group | null>(null);
   const elapsedRef = useRef(0);
   const runningRef = useRef(false);
   const unlockedRef = useRef(0);
@@ -399,6 +411,10 @@ export function ExperienceMilestoneTrail() {
     return smoothPath(FALLBACK_PATH.map((p) => new THREE.Vector3(p[0], p[1], p[2])));
   }, [worldScene, activeSection, experienceJourneyKey]);
   const docMeshes = useMemo(() => {
+    // Re-resolve when the section/journey (re)starts: the island GLB may not be in the scene yet on first mount,
+    // which left this empty and disabled floor snapping + slope alignment for the cat.
+    void activeSection;
+    void experienceJourneyKey;
     const docRoot = resolveDocRoot(worldScene);
     if (!docRoot) return [] as THREE.Mesh[];
     docRoot.updateWorldMatrix(true, true);
@@ -408,7 +424,7 @@ export function ExperienceMilestoneTrail() {
       if (mesh.isMesh) meshes.push(mesh);
     });
     return meshes;
-  }, [worldScene]);
+  }, [worldScene, activeSection, experienceJourneyKey]);
   const wallMeshes = useMemo(() => {
     const meshesFromTag: THREE.Mesh[] = [];
     worldScene.traverse((child) => {
@@ -539,6 +555,35 @@ export function ExperienceMilestoneTrail() {
       }
     });
     catBodyBoneRefs.current = bodyBones.slice(0, 3);
+    {
+      let skinned: THREE.SkinnedMesh | null = null;
+      catModel.traverse((child) => {
+        if (!skinned && (child as THREE.SkinnedMesh).isSkinnedMesh) skinned = child as THREE.SkinnedMesh;
+      });
+      const front: number[] = [];
+      const back: number[] = [];
+      const mesh = skinned as THREE.SkinnedMesh | null;
+      if (mesh) {
+        const skinIndex = mesh.geometry.getAttribute("skinIndex");
+        const skinWeight = mesh.geometry.getAttribute("skinWeight");
+        for (let i = 0; i < skinIndex.count; i += 1) {
+          let best = 0;
+          let bestW = -1;
+          for (let k = 0; k < 4; k += 1) {
+            const w = skinWeight.getComponent(i, k);
+            if (w > bestW) {
+              bestW = w;
+              best = skinIndex.getComponent(i, k);
+            }
+          }
+          const name = mesh.skeleton.bones[best]?.name ?? "";
+          if (!/_(3|4)_/.test(name)) continue;
+          if (name.includes("leg_front")) front.push(i);
+          else if (name.includes("leg_back")) back.push(i);
+        }
+      }
+      catPawRef.current = { mesh, front, back };
+    }
     catHeadBoneRefs.current = headBones.slice(0, 2);
 
     const isIdleClip = (clip: THREE.AnimationClip) => /idle|stand|breathe|rest/i.test(clip.name);
@@ -583,6 +628,11 @@ export function ExperienceMilestoneTrail() {
     unlockedRef.current = 0;
     setExperienceUnlockedCount(0);
     catSpeedRef.current = 0;
+    catGroundRef.current = { y: 0, pitch: 0 };
+    if (catGroundGroupRef.current) {
+      catGroundGroupRef.current.position.y = 0;
+      catGroundGroupRef.current.rotation.x = 0;
+    }
     const body = catBodyRef.current;
     if (body) {
       const start = pathPoints[0];
@@ -620,8 +670,58 @@ export function ExperienceMilestoneTrail() {
     setExperienceCatPose(null);
   }, [activeSection, setExperienceCatPose]);
 
+  // Measures the lowest front and back paw vertices against the terrain and nudges the model so they rest on it:
+  // when standing it settles height + pitch onto the ground; while running it only lifts out of penetration.
+  const groundPaws = (runWeight: number, delta: number) => {
+    const { mesh, front, back } = catPawRef.current;
+    if (!catGroundGroupRef.current || !mesh || front.length === 0 || back.length === 0 || docMeshes.length === 0) return;
+    catGroundGroupRef.current.updateMatrixWorld(true);
+    mesh.skeleton.update();
+    const v = new THREE.Vector3();
+    const lowest = (indices: number[]) => {
+      const best = new THREE.Vector3(0, Infinity, 0);
+      for (const i of indices) {
+        mesh.getVertexPosition(i, v);
+        v.applyMatrix4(mesh.matrixWorld);
+        if (v.y < best.y) best.copy(v);
+      }
+      return best;
+    };
+    const ray = docRayRef.current;
+    const clearance = (p: THREE.Vector3) => {
+      ray.set(new THREE.Vector3(p.x, p.y + 0.6, p.z), new THREE.Vector3(0, -1, 0));
+      ray.far = 2;
+      const hits = ray.intersectObjects(docMeshes, true);
+      return hits.length > 0 ? p.y - hits[0].point.y : null;
+    };
+    const pf = lowest(front);
+    const pb = lowest(back);
+    const cf = clearance(pf);
+    const cb = clearance(pb);
+    if (cf === null || cb === null) return;
+    const g = catGroundRef.current;
+    const eps = CAT_PAW_GROUND_EPS;
+    const minC = Math.min(cf, cb);
+    const eStand = (cf + cb) / 2 - eps;
+    const eRun = minC < eps ? minC - eps : Math.min(Math.max(g.y - CAT_RUN_GROUND_BASE, 0), minC - eps);
+    const e = THREE.MathUtils.lerp(eStand, eRun, runWeight);
+    // Lift out of penetration immediately (this frame's pose is already evaluated); settle down gently.
+    const k = e < 0 ? 1 : 1 - Math.exp(-10 * delta);
+    g.y = THREE.MathUtils.clamp(g.y - e * k, -CAT_GROUND_MAX_OFFSET, CAT_GROUND_MAX_OFFSET);
+    const span = Math.max(0.05, Math.hypot(pf.x - pb.x, pf.z - pb.z));
+    const kp = 1 - Math.exp(-10 * delta);
+    // Group rotation.x > 0 lifts the head end; settle pitch only while standing, relax it while running.
+    g.pitch += ((cb - cf) / span) * (1 - runWeight) * kp;
+    g.pitch *= 1 - runWeight * kp * 0.5;
+    g.pitch = THREE.MathUtils.clamp(g.pitch, -CAT_GROUND_MAX_PITCH, CAT_GROUND_MAX_PITCH);
+    const groundGroup = catGroundGroupRef.current;
+    if (groundGroup) {
+      groundGroup.position.y = g.y;
+      groundGroup.rotation.x = g.pitch;
+    }
+  };
+
   useFrame((_, delta) => {
-    (window as unknown as Record<string, unknown>).__catDbg = { catSpeedRef, walkActionRef, idleActionRef }; // TEMP_DEBUG
     if (mixerRef.current && activeSection === "credits") {
       // AnimationMixer skips writing tracks whose value did not change (e.g. constant idle channels),
       // so undo last frame's additive offsets first; otherwise they accumulate and the cat tumbles.
@@ -645,6 +745,7 @@ export function ExperienceMilestoneTrail() {
       offset.head = CAT_HEAD_LIFT_X * walkWeight;
       for (const bodyBone of catBodyBoneRefs.current) bodyBone.rotateX(offset.body);
       for (const headBone of catHeadBoneRefs.current) headBone.rotateX(offset.head);
+      groundPaws(walkWeight, delta);
     }
     if (activeSection !== "credits") return;
     if (!runningRef.current) return;
@@ -736,7 +837,8 @@ export function ExperienceMilestoneTrail() {
       const prevHeading = headingRef.current;
       headingRef.current = prevHeading + wrapAngle(targetHeading - prevHeading) * rotSmooth;
       const yawRate = delta > 0 ? wrapAngle(headingRef.current - prevHeading) / delta : 0;
-      const pitch = THREE.MathUtils.clamp(0.015 + tangent.y * 0.25, -0.08, 0.1);
+      // With doc snapping the surface normal already follows the slope; only add slope pitch as a fallback.
+      const pitch = docMeshes.length > 0 ? 0 : THREE.MathUtils.clamp(0.015 + tangent.y * 0.25, -0.08, 0.1);
       const leanAmount = THREE.MathUtils.clamp(yawRate * profile.speed * CAT_TURN_LEAN, -CAT_MAX_LEAN, CAT_MAX_LEAN);
       // Turn centre lies on (cos h, 0, -sin h) for a positive yaw rate; tilt the body's up vector toward it.
       const leanVec = new THREE.Vector3(Math.cos(headingRef.current), 0, -Math.sin(headingRef.current));
@@ -884,12 +986,14 @@ export function ExperienceMilestoneTrail() {
         restitution={0}
         position={[0, 0, 0]}
       >
-        <primitive
-          object={catModel}
-          scale={CAT_SCALE}
-          position={[0, 0, 0]}
-          rotation={[0, Math.PI / 2, 0]}
-        />
+        <group ref={catGroundGroupRef}>
+          <primitive
+            object={catModel}
+            scale={CAT_SCALE}
+            position={[0, 0, 0]}
+            rotation={[0, Math.PI / 2, 0]}
+          />
+        </group>
       </RigidBody>
     </group>
   );
