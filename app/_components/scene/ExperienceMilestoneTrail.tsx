@@ -13,7 +13,6 @@ import { getExperienceMilestones } from "../../../mock/experienceData";
 import type { AppLocale } from "../../../mock/locale";
 import { usePortfolioNav } from "../navigation/PortfolioNavContext";
 
-const JOURNEY_DURATION_SECONDS = 8.2;
 const CAT_SCALE = 1 / 80;
 const CAT_WALL_CLEARANCE = 0;
 const CAT_COLLISION_RADIUS = 0.05;
@@ -24,12 +23,24 @@ const FIRST_FLAG_PROGRESS = 0.14;
 const LAST_FLAG_PROGRESS = 0.92;
 const FINAL_APPROACH_WINDOW = 0.12;
 const CAT_STOP_SIDE_OFFSET = 0.55;
-const FINAL_STOP_DISTANCE = 0.18;
 const CAT_POSE_UPDATE_INTERVAL_MS = 50;
 const CAT_MOVE_SMOOTHNESS = 14;
 const CAT_ROTATE_SMOOTHNESS = 9;
+// Extra body dip / head lift layered on the run clip (scaled by run weight, so idle is unaffected).
 const CAT_BODY_DIP_X = -0.12;
 const CAT_HEAD_LIFT_X = 0.18;
+// Journey speed profile (world units / seconds): smooth accelerate -> cruise -> decelerate to a stop.
+const CAT_CRUISE_SPEED = 1.3;
+const CAT_ACCEL_SECONDS = 0.7;
+const CAT_DECEL_SECONDS = 1.0;
+const CAT_START_DELAY_SECONDS = 0.35;
+// Ground speed of the bounding run clip at timeScale 1 (stance paws ~3.5 model units/frame @24fps, at CAT_SCALE).
+const CAT_CLIP_GROUND_SPEED = 1.05;
+// Speed below which the run clip blends into Idle_Stand (~0.5s blend during the decel ramp).
+const CAT_WALK_BLEND_SPEED = 0.6;
+const CAT_LOOKAHEAD = 0.18;
+const CAT_TURN_LEAN = 0.05;
+const CAT_MAX_LEAN = 0.09;
 const TORCH_SCALE = 0.35;
 const TORCH_FLAME_OFFSET: [number, number, number] = [0, 0.23, 0];
 const FIXED_TORCH_OFFSETS: [number, number, number][] = [
@@ -229,6 +240,56 @@ function flagProgressMarks(count: number) {
   });
 }
 
+function smoothstep01(x: number) {
+  const t = Math.min(1, Math.max(0, x));
+  return t * t * (3 - 2 * t);
+}
+
+function wrapAngle(a: number) {
+  return Math.atan2(Math.sin(a), Math.cos(a));
+}
+
+type JourneyPath = { points: THREE.Vector3[]; cum: number[]; length: number; stop: THREE.Vector3 | null };
+
+function samplePolyline(path: JourneyPath, distance: number) {
+  const { points, cum } = path;
+  if (points.length === 0) return new THREE.Vector3();
+  if (distance <= 0) return points[0].clone();
+  if (distance >= path.length) return points[points.length - 1].clone();
+  let lo = 0;
+  let hi = cum.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (cum[mid] <= distance) lo = mid;
+    else hi = mid;
+  }
+  const seg = cum[hi] - cum[lo];
+  const t = seg > 1e-6 ? (distance - cum[lo]) / seg : 0;
+  return new THREE.Vector3().lerpVectors(points[lo], points[hi], t);
+}
+
+// Trapezoid speed profile with smoothstep ramps; returns distance travelled and current speed at time t.
+function journeyProfile(length: number, t: number) {
+  if (length <= 1e-4) return { distance: length, speed: 0, done: true };
+  const ta = CAT_ACCEL_SECONDS;
+  const td = CAT_DECEL_SECONDS;
+  let v = CAT_CRUISE_SPEED;
+  if ((v * (ta + td)) / 2 > length) v = (2 * length) / (ta + td);
+  const da = (v * ta) / 2;
+  const dd = (v * td) / 2;
+  const tc = Math.max(0, (length - da - dd) / v);
+  const total = ta + tc + td;
+  const ramp = (x: number) => x * x * x - (x * x * x * x) / 2; // integral of smoothstep
+  if (t <= 0) return { distance: 0, speed: 0, done: false };
+  if (t < ta) return { distance: v * ta * ramp(t / ta), speed: v * smoothstep01(t / ta), done: false };
+  if (t < ta + tc) return { distance: da + v * (t - ta), speed: v, done: false };
+  if (t < total) {
+    const y = (total - t) / td;
+    return { distance: length - v * td * ramp(y), speed: v * smoothstep01(y), done: false };
+  }
+  return { distance: length, speed: 0, done: true };
+}
+
 function easeOutCubic(t: number) {
   return 1 - Math.pow(1 - t, 3);
 }
@@ -290,7 +351,7 @@ export function ExperienceMilestoneTrail() {
   } = usePortfolioNav();
   const { scene: worldScene } = useThree();
   const { world, rapier } = useRapier();
-  const { scene: catScene, animations } = useGLTF("/cat_rigged.glb") as {
+  const { scene: catScene, animations } = useGLTF("/cat_rigged.glb?v=4") as {
     scene: THREE.Object3D;
     animations: THREE.AnimationClip[];
   };
@@ -315,6 +376,9 @@ export function ExperienceMilestoneTrail() {
   const idleActionRef = useRef<THREE.AnimationAction | null>(null);
   const catBodyBoneRefs = useRef<THREE.Bone[]>([]);
   const catHeadBoneRefs = useRef<THREE.Bone[]>([]);
+  // Last pose offsets added on top of the mixer output, so they can be undone before the next update.
+  const catPoseOffsetRef = useRef({ body: 0, head: 0 });
+  const catSpeedRef = useRef(0);
   const elapsedRef = useRef(0);
   const runningRef = useRef(false);
   const unlockedRef = useRef(0);
@@ -434,6 +498,32 @@ export function ExperienceMilestoneTrail() {
     () => milestoneStops[milestoneStops.length - 1]?.progress ?? 1,
     [milestoneStops]
   );
+  // Arc-length parameterised route (same geometry as before: path, then eased approach to the last flag stop).
+  const journeyPath = useMemo<JourneyPath>(() => {
+    if (pathPoints.length < 2) return { points: [], cum: [0], length: 0, stop: null };
+    const lastStop = milestoneStops[milestoneStops.length - 1];
+    const lastFlag = lastStop?.position;
+    const lastStopTangent = tangentAt(pathPoints, targetJourneyProgress);
+    const stopRaw = lastFlag ? catStopNearFlag(lastFlag, lastStopTangent) : null;
+    const stop =
+      stopRaw && lastFlag ? (snapPointToDocSurface(stopRaw, docMeshes, DOC_SURFACE_OFFSET_Y) ?? lastFlag.clone()) : null;
+    const approachStart = Math.max(0, targetJourneyProgress - FINAL_APPROACH_WINDOW);
+    const points: THREE.Vector3[] = [];
+    const samples = 240;
+    for (let i = 0; i <= samples; i += 1) {
+      const progress = (i / samples) * targetJourneyProgress;
+      const base = lerpPath(pathPoints, progress);
+      const mix =
+        targetJourneyProgress > approachStart
+          ? THREE.MathUtils.clamp((progress - approachStart) / (targetJourneyProgress - approachStart), 0, 1)
+          : 1;
+      const p = stop && progress >= approachStart ? new THREE.Vector3().lerpVectors(base, stop, easeOutCubic(mix)) : base;
+      points.push(offsetOutward(p, tangentAt(pathPoints, progress), CAT_WALL_CLEARANCE));
+    }
+    const cum = [0];
+    for (let i = 1; i < points.length; i += 1) cum.push(cum[i - 1] + points[i].distanceTo(points[i - 1]));
+    return { points, cum, length: cum[cum.length - 1], stop };
+  }, [pathPoints, targetJourneyProgress, milestoneStops, docMeshes]);
   useEffect(() => {
     const bodyBones: THREE.Bone[] = [];
     const headBones: THREE.Bone[] = [];
@@ -451,8 +541,12 @@ export function ExperienceMilestoneTrail() {
     catBodyBoneRefs.current = bodyBones.slice(0, 3);
     catHeadBoneRefs.current = headBones.slice(0, 2);
 
-    const activeWalk = animations.find((clip) => /walk|run|tro(t|d)|move/i.test(clip.name)) ?? animations[0];
-    const activeIdle = animations.find((clip) => /idle|stand|breathe|rest/i.test(clip.name));
+    const isIdleClip = (clip: THREE.AnimationClip) => /idle|stand|breathe|rest/i.test(clip.name);
+    const activeWalk =
+      animations.find((clip) => /walk|run|tro(t|d)|move/i.test(clip.name)) ??
+      animations.find((clip) => !isIdleClip(clip) && !/empty/i.test(clip.name)) ??
+      animations[0];
+    const activeIdle = animations.find(isIdleClip);
     if (!activeWalk) return;
     const mixer = new THREE.AnimationMixer(catModel);
     mixerRef.current = mixer;
@@ -472,6 +566,7 @@ export function ExperienceMilestoneTrail() {
     return () => {
       catBodyBoneRefs.current = [];
       catHeadBoneRefs.current = [];
+      catPoseOffsetRef.current = { body: 0, head: 0 };
       walkAction.stop();
       idleActionRef.current?.stop();
       mixer.stopAllAction();
@@ -487,33 +582,38 @@ export function ExperienceMilestoneTrail() {
     runningRef.current = true;
     unlockedRef.current = 0;
     setExperienceUnlockedCount(0);
+    catSpeedRef.current = 0;
     const body = catBodyRef.current;
     if (body) {
       const start = pathPoints[0];
-      const startTan = tangentAt(pathPoints, 0);
-      const spawnPos = offsetOutward(start, startTan, CAT_WALL_CLEARANCE);
+      const spawnPos = journeyPath.points[0]?.clone() ?? offsetOutward(start, tangentAt(pathPoints, 0), CAT_WALL_CLEARANCE);
       body.setTranslation({ x: spawnPos.x, y: spawnPos.y, z: spawnPos.z }, true);
       body.setNextKinematicTranslation({ x: spawnPos.x, y: spawnPos.y, z: spawnPos.z });
       catPosRef.current.copy(spawnPos);
       prevPosRef.current.copy(start);
-      headingRef.current = 0;
+      // Face along the route from the start instead of spinning from heading 0.
+      const ahead = samplePolyline(journeyPath, CAT_LOOKAHEAD).sub(spawnPos);
+      headingRef.current = Math.hypot(ahead.x, ahead.z) > 1e-4 ? Math.atan2(ahead.x, ahead.z) : 0;
       setExperienceCatPose({
         position: [spawnPos.x, spawnPos.y, spawnPos.z],
         heading: headingRef.current,
       });
       lastPoseUpdateAtRef.current = performance.now();
     }
+    // Both clips play; their weights and walk speed are driven every frame from the cat's ground speed.
+    if (idleActionRef.current) {
+      idleActionRef.current.reset();
+      idleActionRef.current.setEffectiveTimeScale(1);
+      idleActionRef.current.setEffectiveWeight(1);
+      idleActionRef.current.play();
+    }
     if (walkActionRef.current) {
       walkActionRef.current.reset();
       walkActionRef.current.paused = false;
-      walkActionRef.current.setEffectiveTimeScale(1.8);
-      walkActionRef.current.fadeIn(0.2);
+      walkActionRef.current.setEffectiveWeight(idleActionRef.current ? 0 : 1);
       walkActionRef.current.play();
     }
-    if (idleActionRef.current) {
-      idleActionRef.current.stop();
-    }
-  }, [activeSection, experienceJourneyKey, pathPoints, setExperienceUnlockedCount, setExperienceCatPose]);
+  }, [activeSection, experienceJourneyKey, pathPoints, journeyPath, setExperienceUnlockedCount, setExperienceCatPose]);
 
   useEffect(() => {
     if (activeSection === "credits") return;
@@ -521,52 +621,49 @@ export function ExperienceMilestoneTrail() {
   }, [activeSection, setExperienceCatPose]);
 
   useFrame((_, delta) => {
+    (window as unknown as Record<string, unknown>).__catDbg = { catSpeedRef, walkActionRef, idleActionRef }; // TEMP_DEBUG
     if (mixerRef.current && activeSection === "credits") {
+      // AnimationMixer skips writing tracks whose value did not change (e.g. constant idle channels),
+      // so undo last frame's additive offsets first; otherwise they accumulate and the cat tumbles.
+      const offset = catPoseOffsetRef.current;
+      for (const bodyBone of catBodyBoneRefs.current) bodyBone.rotateX(-offset.body);
+      for (const headBone of catHeadBoneRefs.current) headBone.rotateX(-offset.head);
+      const walkAction = walkActionRef.current;
+      const idleAction = idleActionRef.current;
+      const speed = catSpeedRef.current;
+      let walkWeight = walkAction?.isRunning() ? walkAction.getEffectiveWeight() : 0;
+      if (walkAction && idleAction) {
+        // Speed-driven blend: idle when (nearly) still, walk when moving; walk playback matches ground speed.
+        walkWeight = smoothstep01(speed / CAT_WALK_BLEND_SPEED);
+        walkAction.setEffectiveWeight(walkWeight);
+        idleAction.setEffectiveWeight(1 - walkWeight);
+        walkAction.setEffectiveTimeScale(THREE.MathUtils.clamp(speed / CAT_CLIP_GROUND_SPEED, 0.5, 1.6));
+      }
       mixerRef.current.update(delta);
-      for (const bodyBone of catBodyBoneRefs.current) {
-        bodyBone.rotateX(CAT_BODY_DIP_X);
-      }
-      for (const headBone of catHeadBoneRefs.current) {
-        headBone.rotateX(CAT_HEAD_LIFT_X);
-      }
+      // Walk-tuned body dip / head lift, blended out as the walk clip fades to idle.
+      offset.body = CAT_BODY_DIP_X * walkWeight;
+      offset.head = CAT_HEAD_LIFT_X * walkWeight;
+      for (const bodyBone of catBodyBoneRefs.current) bodyBone.rotateX(offset.body);
+      for (const headBone of catHeadBoneRefs.current) headBone.rotateX(offset.head);
     }
     if (activeSection !== "credits") return;
     if (!runningRef.current) return;
     if (pathPoints.length < 2) return;
 
     elapsedRef.current += delta;
-    const journeyProgress = Math.min(1, elapsedRef.current / JOURNEY_DURATION_SECONDS);
-    const progress = journeyProgress * targetJourneyProgress;
-    const pos = lerpPath(pathPoints, progress);
-    const lastStop = milestoneStops[milestoneStops.length - 1];
-    const lastFlag = lastStop?.position;
-    const lastStopTangent = tangentAt(pathPoints, targetJourneyProgress);
-    const lastFlagCatStopRaw = lastFlag ? catStopNearFlag(lastFlag, lastStopTangent) : null;
-    const lastFlagCatStop =
-      lastFlagCatStopRaw && lastFlag
-        ? (snapPointToDocSurface(lastFlagCatStopRaw, docMeshes, DOC_SURFACE_OFFSET_Y) ?? lastFlag.clone())
-        : null;
-    // Smoothly guide the cat toward the actual last milestone destination.
-    const approachStart = Math.max(0, targetJourneyProgress - FINAL_APPROACH_WINDOW);
-    const approachMix =
-      targetJourneyProgress > approachStart
-        ? THREE.MathUtils.clamp((progress - approachStart) / (targetJourneyProgress - approachStart), 0, 1)
-        : 1;
-    const targetPos =
-      lastFlagCatStop && progress >= approachStart
-        ? new THREE.Vector3().lerpVectors(
-          pos,
-          lastFlagCatStop,
-          easeOutCubic(approachMix)
-        )
-        : pos;
-    const tangent = tangentAt(pathPoints, progress);
+    const profile = journeyProfile(journeyPath.length, elapsedRef.current - CAT_START_DELAY_SECONDS);
+    catSpeedRef.current = profile.speed;
+    const targetPos = samplePolyline(journeyPath, profile.distance);
+    const aheadPos = samplePolyline(journeyPath, Math.min(journeyPath.length, profile.distance + CAT_LOOKAHEAD));
+    const progress = targetJourneyProgress * (journeyPath.length > 0 ? profile.distance / journeyPath.length : 1);
+    const pos = targetPos;
+    const tangent = aheadPos.clone().sub(targetPos);
+    if (tangent.lengthSq() > 1e-8) tangent.normalize();
+    else tangent.copy(tangentAt(pathPoints, progress));
     const body = catBodyRef.current;
     if (body) {
-      const gaitT = elapsedRef.current * 8.5;
-
       // Cat movement follows doc path and snaps to doc surface.
-      const safePos = offsetOutward(targetPos, tangent, CAT_WALL_CLEARANCE);
+      const safePos = targetPos;
       const desiredPos = new THREE.Vector3(safePos.x, safePos.y, safePos.z);
       if (docMeshes.length > 0) {
         const docRay = docRayRef.current;
@@ -629,21 +726,24 @@ export function ExperienceMilestoneTrail() {
       }
       const moveSmooth = 1 - Math.exp(-CAT_MOVE_SMOOTHNESS * delta);
       const smoothedPos = currentPos.clone().lerp(desiredPos, moveSmooth);
-      const vx = smoothedPos.x - currentPos.x;
-      const vz = smoothedPos.z - currentPos.z;
-      const planarStep = Math.sqrt(vx * vx + vz * vz);
-      const targetHeading = planarStep > 0.0001 ? Math.atan2(vx, vz) : headingRef.current;
+      // Turn smoothly toward a look-ahead point on the route (shortest angle), and lean into turns.
+      const lookDir = aheadPos.clone().sub(smoothedPos);
+      const targetHeading =
+        Math.hypot(lookDir.x, lookDir.z) > 0.01 && profile.speed > 0.02
+          ? Math.atan2(lookDir.x, lookDir.z)
+          : headingRef.current;
       const rotSmooth = 1 - Math.exp(-CAT_ROTATE_SMOOTHNESS * delta);
-      headingRef.current = THREE.MathUtils.lerp(headingRef.current, targetHeading, rotSmooth);
-
-      const speedFactor = THREE.MathUtils.clamp(planarStep / 0.04, 0.35, 1);
-      const pitchRaw = 0.015 + Math.sin(gaitT * 0.68) * (0.015 * speedFactor) + tangent.y * 0.25;
-      const pitch = THREE.MathUtils.clamp(pitchRaw, -0.08, 0.1);
-      const roll = Math.sin(gaitT * 0.48) * (0.03 * speedFactor);
+      const prevHeading = headingRef.current;
+      headingRef.current = prevHeading + wrapAngle(targetHeading - prevHeading) * rotSmooth;
+      const yawRate = delta > 0 ? wrapAngle(headingRef.current - prevHeading) / delta : 0;
+      const pitch = THREE.MathUtils.clamp(0.015 + tangent.y * 0.25, -0.08, 0.1);
+      const leanAmount = THREE.MathUtils.clamp(yawRate * profile.speed * CAT_TURN_LEAN, -CAT_MAX_LEAN, CAT_MAX_LEAN);
+      // Turn centre lies on (cos h, 0, -sin h) for a positive yaw rate; tilt the body's up vector toward it.
+      const leanVec = new THREE.Vector3(Math.cos(headingRef.current), 0, -Math.sin(headingRef.current));
 
       catPosRef.current.copy(smoothedPos);
       body.setNextKinematicTranslation({ x: smoothedPos.x, y: smoothedPos.y, z: smoothedPos.z });
-      const up = surfaceNormalRef.current.clone().normalize();
+      const up = surfaceNormalRef.current.clone().addScaledVector(leanVec, leanAmount).normalize();
       const headingForward = new THREE.Vector3(
         Math.sin(headingRef.current + Math.PI),
         0,
@@ -658,7 +758,7 @@ export function ExperienceMilestoneTrail() {
       const forward = new THREE.Vector3().crossVectors(right, up).normalize();
       const basis = new THREE.Matrix4().makeBasis(right, up, forward);
       const surfaceQuat = new THREE.Quaternion().setFromRotationMatrix(basis);
-      const localOffset = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, 0, roll, "XYZ"));
+      const localOffset = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, 0, 0, "XYZ"));
       const q = surfaceQuat.multiply(localOffset);
       body.setNextKinematicRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
       prevPosRef.current.copy(pos);
@@ -682,10 +782,10 @@ export function ExperienceMilestoneTrail() {
       setExperienceUnlockedCount(unlocked);
     }
 
-    const hasReachedFinalStop =
-      Boolean(lastFlagCatStop) && catPosRef.current.distanceTo(lastFlagCatStop as THREE.Vector3) <= FINAL_STOP_DISTANCE;
+    const hasReachedFinalStop = profile.done;
+    const lastFlagCatStop = journeyPath.stop;
 
-    if (journeyProgress >= 1 || hasReachedFinalStop) {
+    if (hasReachedFinalStop) {
       if (body) {
         const endPos = lerpPath(pathPoints, targetJourneyProgress);
         const desiredFinalPos = lastFlagCatStop
@@ -725,16 +825,11 @@ export function ExperienceMilestoneTrail() {
         unlockedRef.current = finalUnlocked;
         setExperienceUnlockedCount(finalUnlocked);
       }
-      if (walkActionRef.current) {
-        walkActionRef.current.paused = false;
-        walkActionRef.current.enabled = true;
+      catSpeedRef.current = 0;
+      // Cat has stopped: the speed-driven blend in the mixer block has already eased walk -> Idle_Stand.
+      if (!idleActionRef.current && walkActionRef.current) {
+        walkActionRef.current.setEffectiveWeight(1);
         walkActionRef.current.setEffectiveTimeScale(1.5);
-        if (!walkActionRef.current.isRunning()) {
-          walkActionRef.current.play();
-        }
-      }
-      if (idleActionRef.current) {
-        idleActionRef.current.stop();
       }
     }
   });
@@ -800,5 +895,5 @@ export function ExperienceMilestoneTrail() {
   );
 }
 
-useGLTF.preload("/cat_rigged.glb");
+useGLTF.preload("/cat_rigged.glb?v=4");
 useGLTF.preload("/torch.glb");
