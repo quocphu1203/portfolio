@@ -75,5 +75,29 @@
     "projectsCount": "{count} dự án",
     "noProjects": "Chưa có chim dự án nào cho kỹ năng này",
     "birdsComing": "Dự án dùng {skill} (bấm để mở):"
+  },
+  "pet": {
+    "trustTitle": "Bạn đã chiếm được lòng tin của mèo 🐾",
+    "trustLine": "Từ giờ được vuốt ve thoải mái… miễn là có pate."
+  },
+  "sound": {
+    "on": "Âm thanh: bật",
+    "off": "Âm thanh: tắt"
+  },
+  "fishing": {
+    "sign": "🎣 Câu cá",
+    "prompt": "🎣 Đi câu cá",
+    "walking": "Đang ra cầu tàu…",
+    "waiting": "Chờ cá cắn câu… bấm, chạm hoặc nhấn Space khi thấy dấu !",
+    "bite": "Giật ngay!",
+    "missed": "Cá chạy mất rồi… lần sau nhé! 🐟",
+    "caughtTitle": "Câu được cá rồi! 🐟",
+    "goldenTitle": "Cá vàng hiếm! ✨",
+    "factLabel": "Có thể bạn chưa biết",
+    "again": "Thả câu tiếp",
+    "stop": "Thôi câu",
+    "close": "Thôi câu (Esc)",
+    "count": "Số cá câu được: {count}",
+    "unreachable": "Từ đây mèo không tìm được đường ra cầu tàu. Hãy đi gần hơn rồi thử lại."
   }
 }

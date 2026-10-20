@@ -75,5 +75,29 @@
     "projectsCount": "{count}件のプロジェクト",
     "noProjects": "このスキルのプロジェクトの鳥はまだいません",
     "birdsComing": "{skill}を使ったプロジェクト（クリックで開く）："
+  },
+  "pet": {
+    "trustTitle": "猫の信頼を勝ち取りました 🐾",
+    "trustLine": "これからはいつでもなでてOK…おやつがあればね。"
+  },
+  "sound": {
+    "on": "音: オン",
+    "off": "音: オフ"
+  },
+  "fishing": {
+    "sign": "🎣 釣り",
+    "prompt": "🎣 釣りをする",
+    "walking": "桟橋へ向かっています…",
+    "waiting": "アタリ待ち…「!」が出たらクリック・タップ・Space",
+    "bite": "今だ！",
+    "missed": "逃げられた…次こそ！🐟",
+    "caughtTitle": "魚が釣れた！🐟",
+    "goldenTitle": "レアな金色の魚！✨",
+    "factLabel": "豆知識",
+    "again": "もう一度投げる",
+    "stop": "釣りをやめる",
+    "close": "釣りをやめる（Esc）",
+    "count": "釣った数: {count}",
+    "unreachable": "ここからは桟橋への道が見つかりません。もう少し近づいてからもう一度どうぞ。"
   }
 }

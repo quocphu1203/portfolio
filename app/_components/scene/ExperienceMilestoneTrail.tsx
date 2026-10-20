@@ -15,6 +15,31 @@ import { exploreRuntime } from "../navigation/exploreRuntime";
 import { usePortfolioNav } from "../navigation/PortfolioNavContext";
 import { useReducedMotion } from "../performance/useReducedMotion";
 import { resolveWaterLevel } from "./waterLevel";
+import { playMeow } from "../audio/catSound";
+import { notifyCatPetted } from "../ui/catPetStore";
+import { FISHING_HEADING, FISHING_PROMPT_RADIUS, FISHING_ROUTE, FISHING_SEAT, PIER_ENTRY, PIER_MESH_NAME } from "../fishing/pierLayout";
+import {
+  exitFishing,
+  fishingArrived,
+  fishingUnreachable,
+  getFishingState,
+  isFishingSeated,
+  setFishingNear,
+  type FishingPhase,
+} from "../fishing/fishingStore";
+import {
+  PET_COOLDOWN_MS,
+  PET_CUDDLE_EVERY,
+  PET_PROXY_LIFT,
+  PET_PROXY_RADIUS,
+  applyPetPose,
+  createHeartPool,
+  createPetState,
+  findPetBones,
+  startPet,
+  undoPetPose,
+  type PetBones,
+} from "./catPet";
 import { MilestonePennant } from "./MilestonePennant";
 
 const CAT_SCALE = 1 / 80;
@@ -106,8 +131,12 @@ const INTRO_CAM_DIST = 2.75;
 /** Intro spots must be clearly on land: above the ocean by this much and inside the island. */
 const INTRO_MIN_ABOVE_WATER = 0.45;
 const INTRO_MAX_RADIUS = 11;
-/** Visible island ground meshes that are walkable but not tagged as physics colliders. */
-const WALKABLE_TERRAIN_NAMES = ["Object_232"];
+/** Visible island ground meshes that are walkable but not tagged as physics colliders (+ the fishing pier). */
+const WALKABLE_TERRAIN_NAMES = ["Object_232", PIER_MESH_NAME];
+/** Fishing walk: the cat chases a point this far ahead along the pier route (no stop at every waypoint). */
+const FISHING_CARROT = 0.7;
+/** Give up the walk (no progress along the route) after this long. */
+const FISHING_STUCK_SECONDS = 2.5;
 const INTRO_LOOK_HEIGHT = 0.18;
 // Timings: the cat waits at its start spot until the camera has (nearly) arrived, runs ~1.5-2s, sits ~1s.
 // Reduced motion shortens (not skips) the sequence.
@@ -842,6 +871,11 @@ export function ExperienceMilestoneTrail() {
   const catSitRef = useRef({ w: 0, applied: [] as { bone: THREE.Bone; axis: THREE.Vector3; angle: number }[] });
   // Last pose offsets added on top of the mixer output, so they can be undone before the next update.
   const catPoseOffsetRef = useRef({ body: 0, head: 0, tail: 0 });
+  // Petting: reaction offsets (undone before each mixer update like the others) and the pooled hearts.
+  const petRef = useRef(createPetState());
+  const petBonesRef = useRef<PetBones>({ pelvis: null, spine: null, head: null, ears: [], tail: [] });
+  const heartsGroupRef = useRef<THREE.Group | null>(null);
+  const heartPoolRef = useRef<ReturnType<typeof createHeartPool> | null>(null);
   const catSpeedRef = useRef(0);
   // Paw vertex indices (front / back) of the skinned cat, and the grounding correction applied to the model.
   const catPawRef = useRef<{ mesh: THREE.SkinnedMesh | null; front: number[]; back: number[] }>({ mesh: null, front: [], back: [] });
@@ -869,6 +903,17 @@ export function ExperienceMilestoneTrail() {
     markerAge: 0,
   });
   const markerRef = useRef<THREE.Mesh | null>(null);
+  // Fishing: walk to the pier along FISHING_ROUTE, then sit facing the water (state machine in fishingStore).
+  const fishWalkRef = useRef({
+    active: false,
+    route: [] as THREE.Vector3[],
+    cum: [] as number[],
+    s: 0,
+    best: 0,
+    stuckT: 0,
+    carrot: new THREE.Vector3(),
+    phase: "off" as FishingPhase,
+  });
   // Intro (About) sequence state; `saved` restores the cat's previous spot/heading afterwards.
   const introRef = useRef({
     stage: "off" as "off" | "init" | "place" | "run" | "sit",
@@ -1197,6 +1242,7 @@ export function ExperienceMilestoneTrail() {
     }
     catHeadBoneRefs.current = headBones.slice(0, 2);
     catTailBoneRefs.current = tailBones;
+    petBonesRef.current = findPetBones(catModel, tailBones);
     {
       const sit = { thighs: [] as THREE.Bone[], shins: [] as THREE.Bone[], feet: [] as THREE.Bone[], frontLegs: [] as THREE.Bone[], neck: [] as THREE.Bone[] };
       catModel.traverse((child) => {
@@ -1310,10 +1356,18 @@ export function ExperienceMilestoneTrail() {
     exploreRuntime.catReady = false;
     ex.moveTarget = null;
     ex.speed = 0;
+    exitFishing();
+    setFishingNear(false);
+    fishWalkRef.current.active = false;
     // Sentinel: forces the prompt state to resync on the first explore frame next time.
     ex.near = -2;
     ex.keys = { f: 0, b: 0, l: 0, r: 0 };
   }, [exploreMode]);
+
+  // A dialog / the About intro takes over the cat: stop fishing.
+  useEffect(() => {
+    if (activeSection || introPhase !== "idle") exitFishing();
+  }, [activeSection, introPhase]);
 
   // Intro: remember where the cat was, and put it back (hidden again) when the About sequence ends.
   useEffect(() => {
@@ -1395,6 +1449,102 @@ export function ExperienceMilestoneTrail() {
       onBlur();
     };
   }, [exploreMode, openMilestone]);
+
+  useEffect(() => {
+    const group = heartsGroupRef.current;
+    if (!catActive || !group) return;
+    const pool = createHeartPool(group);
+    heartPoolRef.current = pool;
+    return () => {
+      pool.dispose();
+      heartPoolRef.current = null;
+    };
+  }, [catActive]);
+
+  // Pet the cat: tap / click on it (pointer cursor on hover). Picked with an invisible sphere around the cat;
+  // a press on the cat is consumed here (capture phase) so explore tap-to-move, camera drag and the panel's
+  // click-outside close never see it.
+  useEffect(() => {
+    if (!catActive) return;
+    const el = gl.domElement;
+    const ray = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    const sphere = new THREE.Sphere();
+    const center = new THREE.Vector3();
+    const hitsCat = (clientX: number, clientY: number) => {
+      const group = catGroundGroupRef.current;
+      for (let o: THREE.Object3D | null = group; o; o = o.parent) if (!o.visible) return false;
+      if (!group) return false;
+      group.getWorldPosition(center);
+      center.y += PET_PROXY_LIFT;
+      sphere.set(center, PET_PROXY_RADIUS);
+      const rect = el.getBoundingClientRect();
+      ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+      ray.setFromCamera(ndc, camera);
+      return ray.ray.intersectsSphere(sphere);
+    };
+    const pet = () => {
+      const state = petRef.current;
+      const now = performance.now();
+      if (now - state.lastAt < PET_COOLDOWN_MS) return;
+      state.lastAt = now;
+      const count = notifyCatPetted();
+      startPet(state, {
+        idle: catSpeedRef.current < 0.05,
+        cuddle: count % PET_CUDDLE_EVERY === 0,
+        reducedMotion,
+      });
+      const head = petBonesRef.current.head;
+      const at = new THREE.Vector3();
+      if (head) head.getWorldPosition(at);
+      else catGroundGroupRef.current?.getWorldPosition(at).setY(at.y + 0.3);
+      at.y += 0.08;
+      heartPoolRef.current?.spawn(at, reducedMotion ? 3 : 3 + Math.floor(Math.random() * 4));
+      playMeow();
+    };
+    let press: { id: number; x: number; y: number; at: number } | null = null;
+    let hovering = false;
+    const setHover = (on: boolean) => {
+      if (on === hovering) return;
+      hovering = on;
+      el.style.cursor = on ? "pointer" : "";
+    };
+    const onDown = (e: PointerEvent) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      if (!hitsCat(e.clientX, e.clientY)) return;
+      // Also suppresses the compatibility mousedown (the open panel would close on an outside click).
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      press = { id: e.pointerId, x: e.clientX, y: e.clientY, at: performance.now() };
+    };
+    const onUp = (e: PointerEvent) => {
+      if (!press || e.pointerId !== press.id) return;
+      const tap =
+        e.type === "pointerup" &&
+        Math.hypot(e.clientX - press.x, e.clientY - press.y) < 12 &&
+        performance.now() - press.at < 700;
+      press = null;
+      if (tap) pet();
+    };
+    const onMove = (e: PointerEvent) => {
+      if (e.pointerType !== "mouse" || e.buttons !== 0) return;
+      setHover(hitsCat(e.clientX, e.clientY));
+    };
+    const onLeave = () => setHover(false);
+    el.addEventListener("pointerdown", onDown, { capture: true });
+    window.addEventListener("pointerup", onUp, { capture: true });
+    window.addEventListener("pointercancel", onUp, { capture: true });
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerleave", onLeave);
+    return () => {
+      el.removeEventListener("pointerdown", onDown, { capture: true });
+      window.removeEventListener("pointerup", onUp, { capture: true });
+      window.removeEventListener("pointercancel", onUp, { capture: true });
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerleave", onLeave);
+      if (hovering) el.style.cursor = "";
+    };
+  }, [catActive, gl, camera, reducedMotion]);
 
   useEffect(() => {
     if (!exploreMode) return;
@@ -1978,12 +2128,105 @@ export function ExperienceMilestoneTrail() {
     }
   };
 
+  // Fishing walk: regular explore movement (walkability probe, sliding, turn slow-down) chasing a carrot that
+  // runs along the A* pier route from the waypoint nearest the cat. WASD cancels; no progress -> give up.
+  const fishingWalkStep = (delta: number) => {
+    const ex = exploreRef.current;
+    if (ex.needsInit && !initExploreCat()) return;
+    const f = fishWalkRef.current;
+    const pos = catPosRef.current;
+    const k = ex.keys;
+    if (k.f || k.b || k.l || k.r) {
+      exitFishing();
+      return;
+    }
+    if (!f.active) {
+      let best = 0;
+      let bestCost = Infinity;
+      let remaining = 0;
+      for (let i = FISHING_ROUTE.length - 1; i >= 0; i -= 1) {
+        if (i < FISHING_ROUTE.length - 1) remaining += FISHING_ROUTE[i].distanceTo(FISHING_ROUTE[i + 1]);
+        const p = FISHING_ROUTE[i];
+        const cost = Math.hypot(p.x - pos.x, p.z - pos.z) * 1.5 + remaining;
+        if (cost < bestCost) {
+          bestCost = cost;
+          best = i;
+        }
+      }
+      f.route = [pos.clone(), ...FISHING_ROUTE.slice(best)];
+      f.cum = [0];
+      for (let i = 1; i < f.route.length; i += 1) f.cum.push(f.cum[i - 1] + f.route[i - 1].distanceTo(f.route[i]));
+      f.s = 0;
+      f.best = 0;
+      f.stuckT = 0;
+      f.active = true;
+    }
+    // Progress = projection of the cat onto the route (forward only, near the current position along it).
+    const total = f.cum[f.cum.length - 1];
+    let proj = f.s;
+    let projDist = Infinity;
+    for (let i = 0; i < f.route.length - 1; i += 1) {
+      if (f.cum[i + 1] < f.s - 0.3 || f.cum[i] > f.s + 1.2) continue;
+      const a = f.route[i];
+      const b = f.route[i + 1];
+      const abx = b.x - a.x;
+      const abz = b.z - a.z;
+      const len2 = abx * abx + abz * abz;
+      const u = len2 > 1e-9 ? THREE.MathUtils.clamp(((pos.x - a.x) * abx + (pos.z - a.z) * abz) / len2, 0, 1) : 0;
+      const d = Math.hypot(a.x + abx * u - pos.x, a.z + abz * u - pos.z);
+      if (d < projDist) {
+        projDist = d;
+        proj = f.cum[i] + (f.cum[i + 1] - f.cum[i]) * u;
+      }
+    }
+    f.s = Math.max(f.s, proj);
+    const cs = Math.min(total, f.s + FISHING_CARROT);
+    let seg = 0;
+    while (seg < f.route.length - 2 && f.cum[seg + 1] < cs) seg += 1;
+    const segLen = f.cum[seg + 1] - f.cum[seg];
+    f.carrot.lerpVectors(f.route[seg], f.route[seg + 1], segLen > 1e-9 ? (cs - f.cum[seg]) / segLen : 1);
+    ex.moveTarget = f.carrot;
+    exploreRuntime.followHeading = true;
+    exploreStep(delta);
+    if (markerRef.current) markerRef.current.visible = false;
+    if (f.s > f.best + 0.05) {
+      f.best = f.s;
+      f.stuckT = 0;
+    } else {
+      f.stuckT += delta;
+    }
+    if (Math.hypot(FISHING_SEAT.x - pos.x, FISHING_SEAT.z - pos.z) < 0.1 && ex.speed < 0.08) {
+      f.active = false;
+      ex.moveTarget = null;
+      fishingArrived();
+    } else if (f.stuckT > FISHING_STUCK_SECONDS) {
+      f.active = false;
+      ex.moveTarget = null;
+      fishingUnreachable();
+    }
+  };
+
+  // Fishing (seated): turn to the water and stay put (exploreStep keeps it grounded); WASD stands up and leaves.
+  const fishingSeatStep = (delta: number) => {
+    const ex = exploreRef.current;
+    const k = ex.keys;
+    if (k.f || k.b || k.l || k.r) {
+      exitFishing();
+      return;
+    }
+    ex.moveTarget = null;
+    headingRef.current += wrapAngle(FISHING_HEADING - headingRef.current) * (1 - Math.exp(-4 * delta));
+    exploreStep(delta);
+  };
+
   useFrame((_, delta) => {
     if (mixerRef.current && catActive) {
       // AnimationMixer skips writing tracks whose value did not change (e.g. constant idle channels),
       // so undo last frame's additive offsets first; otherwise they accumulate and the cat tumbles.
       const offset = catPoseOffsetRef.current;
-      // Undo in reverse order of application: sit, tail, head, body.
+      // Undo in reverse order of application: pet, sit, tail, head, body.
+      const pet = petRef.current;
+      undoPetPose(pet);
       const sit = catSitRef.current;
       for (let k = sit.applied.length - 1; k >= 0; k -= 1) {
         const a = sit.applied[k];
@@ -2012,7 +2255,8 @@ export function ExperienceMilestoneTrail() {
       for (const headBone of catHeadBoneRefs.current) headBone.rotateX(offset.head);
       // Tail wag while the intro cat sits (additive bone offset, eased in/out).
       const intro = introRef.current;
-      const wagTarget = (introActive || (exploreMode && introPhase !== "idle")) && intro.stage === "sit" ? 1 : 0;
+      const fishSeated = exploreMode && introPhase === "idle" && isFishingSeated(getFishingState().phase);
+      const wagTarget = ((introActive || (exploreMode && introPhase !== "idle")) && intro.stage === "sit") || fishSeated ? 1 : 0;
       intro.wag += (wagTarget - intro.wag) * (1 - Math.exp(-3 * delta));
       intro.wagTime += delta;
       offset.tail = intro.wag > 0.001 ? Math.sin(intro.wagTime * TAIL_WAG_SPEED) * TAIL_WAG_AMPLITUDE * intro.wag : 0;
@@ -2043,15 +2287,46 @@ export function ExperienceMilestoneTrail() {
           });
         });
       }
+      // Pet reaction on top (head tilt, ears, tail; idle cuddle wiggle). Bone offsets only: no movement change.
+      if (pet.t < 1 || pet.cuddleT < 2) {
+        catGroundGroupRef.current?.updateMatrixWorld(true);
+        applyPetPose(pet, petBonesRef.current, delta, {
+          heading: headingRef.current,
+          runWeight: walkWeight,
+          reducedMotion,
+          tailAxis: TAIL_WAG_AXIS,
+        });
+      }
       groundPaws(walkWeight, delta);
     }
+    heartPoolRef.current?.update(Math.min(delta, 0.1));
     if (exploreMode) {
       if (catGroundGroupRef.current && !catGroundGroupRef.current.visible) catGroundGroupRef.current.visible = true;
       if (introPhase !== "idle") {
         exploreIntroStep(Math.min(delta, 0.1));
       } else {
         if (introRef.current.stage !== "off" && !introActive) introRef.current.stage = "off";
-        exploreStep(Math.min(delta, 0.1));
+        const dt = Math.min(delta, 0.1);
+        const f = fishWalkRef.current;
+        const fishPhase = getFishingState().phase;
+        if (fishPhase !== f.phase) {
+          // Leaving fishing (Esc / close / WASD): stand up where it is and resume normal explore control.
+          if (fishPhase === "off" || f.phase === "walking") {
+            f.active = false;
+            exploreRef.current.moveTarget = null;
+            exploreRuntime.followHeading = false;
+          }
+          f.phase = fishPhase;
+        }
+        if (fishPhase === "walking") fishingWalkStep(dt);
+        else if (fishPhase !== "off") fishingSeatStep(dt);
+        else {
+          exploreStep(dt);
+          const pos = catPosRef.current;
+          setFishingNear(
+            Math.hypot(PIER_ENTRY.x - pos.x, PIER_ENTRY.z - pos.z) < FISHING_PROMPT_RADIUS && Math.abs(PIER_ENTRY.y - pos.y) < 1
+          );
+        }
       }
       return;
     }
@@ -2390,6 +2665,8 @@ export function ExperienceMilestoneTrail() {
           <meshBasicMaterial color="#ffe7b0" transparent opacity={0.85} depthWrite={false} />
         </mesh>
       )}
+
+      <group ref={heartsGroupRef} name="cat-pet-hearts" />
 
       <RigidBody
         ref={catBodyRef}

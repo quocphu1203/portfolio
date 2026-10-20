@@ -3,6 +3,8 @@
 import React, { useEffect, useSyncExternalStore } from "react";
 import { useTranslations } from "next-intl";
 
+import { setSoundEnabled, useSoundEnabled } from "../audio/catSound";
+import { getFishingState } from "../fishing/fishingStore";
 import { usePortfolioNav } from "../navigation/PortfolioNavContext";
 import type { RainMode } from "../scene/WeatherEffects";
 
@@ -33,6 +35,8 @@ export function ExploreControls({
 }) {
   const t = useTranslations("explore");
   const tWeather = useTranslations("weather");
+  const tSound = useTranslations("sound");
+  const soundOn = useSoundEnabled();
   const { exploreMode, enterExplore, exitExplore, activeSection } = usePortfolioNav();
   const finePointer = useSyncExternalStore(
     subscribeFinePointer,
@@ -44,7 +48,8 @@ export function ExploreControls({
     if (!exploreMode) return;
     const onKey = (e: KeyboardEvent) => {
       // With a panel open, Esc closes the panel first (handled by PortfolioInfoPanel / the dialog).
-      if (e.key === "Escape" && !activeSection) exitExplore();
+      // While fishing, Esc only stops fishing (FishingHud).
+      if (e.key === "Escape" && !activeSection && getFishingState().phase === "off") exitExplore();
     };
     // Capture phase: run before the dialog's own Escape handling. Otherwise the dialog closes, this effect
     // re-registers with no active section during the same keypress, and Esc would also leave explore mode.
@@ -60,6 +65,14 @@ export function ExploreControls({
   return (
     <>
       <div className="fixed right-3 bottom-[calc(env(safe-area-inset-bottom)+3.1rem)] z-10 flex flex-col items-end gap-2 sm:right-6 sm:bottom-16">
+        <button
+          type="button"
+          onClick={() => setSoundEnabled(!soundOn)}
+          aria-pressed={soundOn}
+          className={buttonClass}
+        >
+          {soundOn ? tSound("on") : tSound("off")}
+        </button>
         {rainAvailable && (
           <button
             type="button"

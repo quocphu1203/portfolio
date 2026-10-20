@@ -22,6 +22,9 @@ import { WeatherEffects, type RainMode } from "./_components/scene/WeatherEffect
 import { TimeOfDayProvider } from "./_components/time/TimeOfDayContext";
 import { TimeOfDayLighting } from "./_components/time/TimeOfDayLighting";
 import { TimeOfDayToggle } from "./_components/time/TimeOfDayToggle";
+import { CatTrustToast } from "./_components/ui/CatTrustToast";
+import { FishingHud } from "./_components/fishing/FishingHud";
+import { FishingSpot } from "./_components/fishing/FishingSpot";
 import { ExploreControls } from "./_components/ui/ExploreControls";
 import { ImmersiveChrome } from "./_components/ui/ImmersiveChrome";
 import { IslandIntroOverlay } from "./_components/ui/IslandIntroOverlay";
@@ -147,6 +150,7 @@ function FantasyIslandCanvasInner() {
             <FantasyIslandFitted controlsRef={controlsRef} lowPerformance={lowPerformance} />
             <FloatingBoats lowPerformance={lowPerformance} />
             <ProjectBirdFlock />
+            <FishingSpot />
             <ExperienceMilestoneTrail />
             <IslandSignpostMenu visible={started} scaleMultiplier={signpostScaleMultiplier} />
           </Physics>
@@ -205,6 +209,8 @@ function FantasyIslandCanvasInner() {
         rainAvailable={!reducedMotion}
       />
       <PortfolioInfoPanel visible={started} />
+      {started && <CatTrustToast />}
+      {started && <FishingHud />}
       <TimeOfDayToggle visible={started} />
       <LanguageSwitcher />
     </div>

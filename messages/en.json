@@ -75,5 +75,29 @@
     "projectsCount": "{count, plural, one {# project} other {# projects}}",
     "noProjects": "No project bird for this skill yet",
     "birdsComing": "Projects using {skill} (click to open):"
+  },
+  "pet": {
+    "trustTitle": "You've earned the cat's trust 🐾",
+    "trustLine": "It now lets you pet it any time… as long as snacks are involved."
+  },
+  "sound": {
+    "on": "Sound: on",
+    "off": "Sound: off"
+  },
+  "fishing": {
+    "sign": "🎣 Fishing",
+    "prompt": "🎣 Go fishing",
+    "walking": "Heading to the pier…",
+    "waiting": "Waiting for a bite… click, tap or press Space at the !",
+    "bite": "Now!",
+    "missed": "It got away… next one! 🐟",
+    "caughtTitle": "You caught a fish! 🐟",
+    "goldenTitle": "Rare golden fish! ✨",
+    "factLabel": "Fun fact",
+    "again": "Cast again",
+    "stop": "Stop fishing",
+    "close": "Stop fishing (Esc)",
+    "count": "Fish caught: {count}",
+    "unreachable": "The cat can't find a way to the pier from here. Walk a little closer and try again."
   }
 }
