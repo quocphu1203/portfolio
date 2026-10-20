@@ -155,3 +155,47 @@
     transform: rotate(16deg);
   }
 }
+
+/* Explore CTA: soft, slow glow ring (decorative; off for reduced motion). */
+@keyframes explore-cta-glow {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.06);
+  }
+}
+.explore-cta-glow {
+  pointer-events: none;
+  position: absolute;
+  inset: -4px;
+  border-radius: 9999px;
+  box-shadow:
+    0 0 0 1px rgba(252, 214, 160, 0.45),
+    0 0 18px 4px rgba(220, 168, 105, 0.35);
+  animation: explore-cta-glow 3.2s ease-in-out infinite;
+}
+@keyframes explore-invite-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+.explore-invite-float {
+  animation: explore-invite-float 2.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .explore-cta-glow {
+    animation: none;
+    opacity: 0.6;
+  }
+  .explore-invite-float {
+    animation: none;
+  }
+}

@@ -23,6 +23,8 @@ import { TimeOfDayProvider } from "./_components/time/TimeOfDayContext";
 import { TimeOfDayLighting } from "./_components/time/TimeOfDayLighting";
 import { TimeOfDayToggle } from "./_components/time/TimeOfDayToggle";
 import { CatTrustToast } from "./_components/ui/CatTrustToast";
+import { ExploreCta } from "./_components/explore/ExploreCta";
+import { ExploreHud } from "./_components/explore/ExploreHud";
 import { FishingHud } from "./_components/fishing/FishingHud";
 import { FishingSpot } from "./_components/fishing/FishingSpot";
 import { ExploreControls } from "./_components/ui/ExploreControls";
@@ -211,6 +213,8 @@ function FantasyIslandCanvasInner() {
       <PortfolioInfoPanel visible={started} />
       {started && <CatTrustToast />}
       {started && <FishingHud />}
+      <ExploreCta started={started} />
+      {started && <ExploreHud />}
       <TimeOfDayToggle visible={started} />
       <LanguageSwitcher />
     </div>

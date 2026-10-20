@@ -99,5 +99,25 @@
     "close": "Thôi câu (Esc)",
     "count": "Số cá câu được: {count}",
     "unreachable": "Từ đây mèo không tìm được đường ra cầu tàu. Hãy đi gần hơn rồi thử lại."
+  },
+  "exploreCta": {
+    "enter": "Khám phá cùng mèo",
+    "exit": "Thoát khám phá",
+    "invite": "Cùng mèo khám phá hòn đảo nhé!",
+    "inviteKeys": "Phím W A S D để di chuyển",
+    "inviteClick": "hoặc bấm xuống đất",
+    "inviteTap": "Chạm xuống đất để đi"
+  },
+  "exploreHud": {
+    "title": "Khám phá",
+    "showControls": "Hiện hướng dẫn",
+    "hideControls": "Ẩn hướng dẫn",
+    "milestones": "Cột mốc {found}/{total}",
+    "fish": "🎣 {count}",
+    "pier": "Cầu câu cá",
+    "pierFound": "Cầu tàu",
+    "next": "Tiếp:",
+    "distance": "{d} m",
+    "allFound": "Đã khám phá hết! ✓"
   }
 }

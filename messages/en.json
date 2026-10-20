@@ -99,5 +99,25 @@
     "close": "Stop fishing (Esc)",
     "count": "Fish caught: {count}",
     "unreachable": "The cat can't find a way to the pier from here. Walk a little closer and try again."
+  },
+  "exploreCta": {
+    "enter": "Explore with the cat",
+    "exit": "Exit explore",
+    "invite": "Explore the island with the cat!",
+    "inviteKeys": "W A S D keys to move",
+    "inviteClick": "or click the ground",
+    "inviteTap": "Tap the ground to walk"
+  },
+  "exploreHud": {
+    "title": "Explore",
+    "showControls": "Show controls",
+    "hideControls": "Hide controls",
+    "milestones": "Milestones {found}/{total}",
+    "fish": "🎣 {count}",
+    "pier": "Fishing pier",
+    "pierFound": "Pier",
+    "next": "Next:",
+    "distance": "{d} m",
+    "allFound": "You found everything! ✓"
   }
 }

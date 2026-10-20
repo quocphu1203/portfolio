@@ -99,5 +99,25 @@
     "close": "釣りをやめる（Esc）",
     "count": "釣った数: {count}",
     "unreachable": "ここからは桟橋への道が見つかりません。もう少し近づいてからもう一度どうぞ。"
+  },
+  "exploreCta": {
+    "enter": "猫と探検",
+    "exit": "探検を終える",
+    "invite": "猫と一緒に島を探検しよう！",
+    "inviteKeys": "W A S D キーで移動",
+    "inviteClick": "地面をクリックでも移動",
+    "inviteTap": "地面をタップで移動"
+  },
+  "exploreHud": {
+    "title": "探検",
+    "showControls": "操作を表示",
+    "hideControls": "操作を隠す",
+    "milestones": "マイルストーン {found}/{total}",
+    "fish": "🎣 {count}",
+    "pier": "釣りの桟橋",
+    "pierFound": "桟橋",
+    "next": "次:",
+    "distance": "{d} m",
+    "allFound": "全部見つけました！✓"
   }
 }

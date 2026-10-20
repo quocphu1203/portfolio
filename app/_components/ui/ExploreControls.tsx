@@ -1,20 +1,12 @@
 "use client";
 
-import React, { useEffect, useSyncExternalStore } from "react";
+import React, { useEffect } from "react";
 import { useTranslations } from "next-intl";
 
 import { setSoundEnabled, useSoundEnabled } from "../audio/catSound";
 import { getFishingState } from "../fishing/fishingStore";
 import { usePortfolioNav } from "../navigation/PortfolioNavContext";
 import type { RainMode } from "../scene/WeatherEffects";
-
-const FINE_POINTER = "(hover: hover) and (pointer: fine)";
-
-function subscribeFinePointer(onChange: () => void) {
-  const mq = window.matchMedia(FINE_POINTER);
-  mq.addEventListener("change", onChange);
-  return () => mq.removeEventListener("change", onChange);
-}
 
 const RAIN_NEXT: Record<RainMode, RainMode> = { auto: "on", on: "off", off: "auto" };
 
@@ -33,16 +25,10 @@ export function ExploreControls({
   /** Rain is disabled when the user prefers reduced motion. */
   rainAvailable: boolean;
 }) {
-  const t = useTranslations("explore");
   const tWeather = useTranslations("weather");
   const tSound = useTranslations("sound");
   const soundOn = useSoundEnabled();
-  const { exploreMode, enterExplore, exitExplore, activeSection } = usePortfolioNav();
-  const finePointer = useSyncExternalStore(
-    subscribeFinePointer,
-    () => window.matchMedia(FINE_POINTER).matches,
-    () => true
-  );
+  const { exploreMode, exitExplore, activeSection } = usePortfolioNav();
 
   useEffect(() => {
     if (!exploreMode) return;
@@ -62,6 +48,7 @@ export function ExploreControls({
   const rainLabel =
     rainMode === "on" ? tWeather("rainOn") : rainMode === "off" ? tWeather("rainOff") : tWeather("rainAuto");
 
+  // The explore toggle itself is the bottom CTA (ExploreCta); the controls hint lives in the explore HUD.
   return (
     <>
       <div className="fixed right-3 bottom-[calc(env(safe-area-inset-bottom)+3.1rem)] z-10 flex flex-col items-end gap-2 sm:right-6 sm:bottom-16">
@@ -83,26 +70,7 @@ export function ExploreControls({
             {rainLabel}
           </button>
         )}
-        <button
-          type="button"
-          onClick={() => (exploreMode ? exitExplore() : enterExplore())}
-          aria-pressed={exploreMode}
-          className={[
-            buttonClass,
-            exploreMode ? "border-[#dca869]/70 bg-[#2f1f11]/70 text-[#fce6c4]" : "",
-          ].join(" ")}
-        >
-          {exploreMode ? t("exit") : t("enter")}
-        </button>
       </div>
-      {exploreMode && (
-        <div
-          className="pointer-events-none fixed left-0 right-0 z-8 px-4 text-center text-[10px] tracking-[0.14em] text-[#d8e8f1]/90 uppercase bottom-[calc(env(safe-area-inset-bottom)+2.4rem)] sm:bottom-20 sm:text-[11px]"
-          aria-live="polite"
-        >
-          {finePointer ? t("hintDesktop") : t("hintTouch")}
-        </div>
-      )}
     </>
   );
 }

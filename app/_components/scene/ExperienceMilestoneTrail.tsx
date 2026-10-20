@@ -17,6 +17,7 @@ import { useReducedMotion } from "../performance/useReducedMotion";
 import { resolveWaterLevel } from "./waterLevel";
 import { playMeow } from "../audio/catSound";
 import { notifyCatPetted } from "../ui/catPetStore";
+import { markMilestoneDiscovered, markPierDiscovered, updateExplorePoi } from "../explore/exploreProgress";
 import { FISHING_HEADING, FISHING_PROMPT_RADIUS, FISHING_ROUTE, FISHING_SEAT, PIER_ENTRY, PIER_MESH_NAME } from "../fishing/pierLayout";
 import {
   exitFishing,
@@ -135,6 +136,8 @@ const INTRO_MAX_RADIUS = 11;
 const WALKABLE_TERRAIN_NAMES = ["Object_232", PIER_MESH_NAME];
 /** Fishing walk: the cat chases a point this far ahead along the pier route (no stop at every waypoint). */
 const FISHING_CARROT = 0.7;
+/** Cost weight of the unplanned straight first leg vs known obstacle-free route length (prefer joining early). */
+const FISHING_STRAIGHT_COST = 3;
 /** Give up the walk (no progress along the route) after this long. */
 const FISHING_STUCK_SECONDS = 2.5;
 const INTRO_LOOK_HEIGHT = 0.18;
@@ -1402,6 +1405,7 @@ export function ExperienceMilestoneTrail() {
   const openMilestone = useCallback(
     (idx: number) => {
       // Reuse the existing Experience panel: unlock up to this milestone and open the section.
+      markMilestoneDiscovered(idx);
       setExperienceUnlockedCount(Math.max(experienceUnlockedCount, idx + 1));
       setActiveSection("credits");
     },
@@ -1837,6 +1841,7 @@ export function ExperienceMilestoneTrail() {
     if (near !== ex.near) {
       ex.near = near;
       setNearMilestone(near);
+      if (near >= 0 && exploreMode) markMilestoneDiscovered(near);
     }
 
     const marker = markerRef.current;
@@ -2147,13 +2152,25 @@ export function ExperienceMilestoneTrail() {
       for (let i = FISHING_ROUTE.length - 1; i >= 0; i -= 1) {
         if (i < FISHING_ROUTE.length - 1) remaining += FISHING_ROUTE[i].distanceTo(FISHING_ROUTE[i + 1]);
         const p = FISHING_ROUTE[i];
-        const cost = Math.hypot(p.x - pos.x, p.z - pos.z) * 1.5 + remaining;
+        const cost = Math.hypot(p.x - pos.x, p.z - pos.z) * FISHING_STRAIGHT_COST + remaining;
         if (cost < bestCost) {
           bestCost = cost;
           best = i;
         }
       }
-      f.route = [pos.clone(), ...FISHING_ROUTE.slice(best)];
+      let route = FISHING_ROUTE.slice(best);
+      // From along the milestone path: run back along the (obstacle-free) journey route to its start, where
+      // the pier route begins, when that is cheaper than walking straight to a pier-route waypoint.
+      const pierLength = remaining;
+      const jp = journeyPath.points;
+      for (let k = 0; k < jp.length; k += 1) {
+        const cost = Math.hypot(jp[k].x - pos.x, jp[k].z - pos.z) * FISHING_STRAIGHT_COST + journeyPath.cum[k] + pierLength;
+        if (cost < bestCost) {
+          bestCost = cost;
+          route = [...jp.slice(0, k + 1).reverse(), ...FISHING_ROUTE];
+        }
+      }
+      f.route = [pos.clone(), ...route];
       f.cum = [0];
       for (let i = 1; i < f.route.length; i += 1) f.cum.push(f.cum[i - 1] + f.route[i - 1].distanceTo(f.route[i]));
       f.s = 0;
@@ -2323,10 +2340,14 @@ export function ExperienceMilestoneTrail() {
         else {
           exploreStep(dt);
           const pos = catPosRef.current;
-          setFishingNear(
-            Math.hypot(PIER_ENTRY.x - pos.x, PIER_ENTRY.z - pos.z) < FISHING_PROMPT_RADIUS && Math.abs(PIER_ENTRY.y - pos.y) < 1
-          );
+          const nearPier =
+            Math.hypot(PIER_ENTRY.x - pos.x, PIER_ENTRY.z - pos.z) < FISHING_PROMPT_RADIUS && Math.abs(PIER_ENTRY.y - pos.y) < 1;
+          setFishingNear(nearPier);
+          if (nearPier) markPierDiscovered();
+          // Explore HUD compass: nearest undiscovered milestone / pier, as an on-screen direction.
+          updateExplorePoi(camera, (camera as THREE.PerspectiveCamera).aspect || 1, pos, milestoneStops, PIER_ENTRY);
         }
+        if (fishPhase !== "off") markPierDiscovered();
       }
       return;
     }
@@ -2609,7 +2630,7 @@ export function ExperienceMilestoneTrail() {
         const torchOffset = FIXED_TORCH_OFFSETS[Math.min(idx, FIXED_TORCH_OFFSETS.length - 1)];
         const torchModel = torchModels[stop.idx];
         return (
-          <group key={milestone.id} position={flagPos.toArray()} rotation={[0, flagYaw, 0]}>
+          <group key={milestone.id} name={`milestone-flag-${stop.idx}`} position={flagPos.toArray()} rotation={[0, flagYaw, 0]}>
             {torchModel && (
               <group position={torchOffset}>
                 <primitive object={torchModel} scale={TORCH_SCALE} />

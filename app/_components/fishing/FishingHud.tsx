@@ -89,7 +89,7 @@ export function FishingHud() {
   return (
     <>
       {showPrompt && (
-        <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+4.9rem)] z-20 flex justify-center sm:bottom-28" data-fishing-ui>
+        <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+6.25rem)] z-20 flex justify-center sm:bottom-32" data-fishing-ui>
           <button type="button" onClick={startFishing} className={`${pill} border-[#8fd0e8]/40 text-[#e9f8ff]`}>
             {t("prompt")}
           </button>
@@ -164,7 +164,7 @@ export function FishingHud() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.25, ease: "easeOut" }}
-            className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] z-20 mx-auto w-[min(92vw,24rem)] rounded-2xl border border-[#8fd0e8]/30 bg-[#0d1a22]/85 p-4 text-[#e7f1f6] shadow-[0_12px_40px_rgba(0,0,0,0.45)] backdrop-blur-md sm:bottom-28"
+            className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+6.25rem)] z-20 mx-auto w-[min(92vw,24rem)] rounded-2xl border border-[#8fd0e8]/30 bg-[#0d1a22]/85 p-4 text-[#e7f1f6] shadow-[0_12px_40px_rgba(0,0,0,0.45)] backdrop-blur-md sm:bottom-32"
             role="dialog"
             aria-label={s.lastGolden ? t("goldenTitle") : t("caughtTitle")}
             data-fishing-ui
