@@ -45,9 +45,10 @@ let deadline = 0;
 /** Bite window left (ms), counted in clamped frame time so a hitch can't eat the reaction window. */
 let biteLeft = 0;
 const MAX_FRAME_MS = 50;
-/** Shuffle bag of fact indices: every fact is shown once before any repeats. */
+/** Shuffle bag of fact indices (next = bag[0]): every fact is shown once before any repeats. */
 let bag: number[] = [];
-let factCount = 0;
+let factMeta: readonly { personal: boolean; special: boolean }[] = [];
+let factKey = "";
 const listeners = new Set<() => void>();
 
 function set(patch: Partial<FishingState>) {
@@ -68,25 +69,62 @@ export function useFishingState() {
   return useSyncExternalStore(subscribe, getFishingState, getFishingState);
 }
 
-export function setFishingFactCount(count: number) {
-  if (count !== factCount) {
-    factCount = count;
-    bag = [];
-  }
+/** Fact flags (same order in every locale): personal facts come first, golden fish reveal special ones. */
+export function setFishingFacts(meta: readonly { personal: boolean; special: boolean }[]) {
+  const key = meta.map((m) => `${+m.personal}${+m.special}`).join("");
+  if (key === factKey) return;
+  factKey = key;
+  factMeta = meta;
+  bag = [];
 }
 
-function nextFact() {
-  if (factCount <= 0) return -1;
-  if (bag.length === 0) {
-    bag = Array.from({ length: factCount }, (_, i) => i);
-    for (let i = bag.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [bag[i], bag[j]] = [bag[j], bag[i]];
-    }
-    // No back-to-back repeat across bag refills.
-    if (bag.length > 1 && bag[bag.length - 1] === state.factIndex) [bag[0], bag[bag.length - 1]] = [bag[bag.length - 1], bag[0]];
+function shuffled(list: number[]) {
+  const out = [...list];
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
   }
-  return bag.pop() ?? -1;
+  return out;
+}
+
+/**
+ * New round: personal facts interleaved with profile ones (personal first, so catch 1 is personal), the
+ * golden-only "special" personal facts last among the personal ones; leftovers appended.
+ */
+function refillBag() {
+  const all = factMeta.map((_, i) => i);
+  const personal = [
+    ...shuffled(all.filter((i) => factMeta[i].personal && !factMeta[i].special)),
+    ...shuffled(all.filter((i) => factMeta[i].personal && factMeta[i].special)),
+  ];
+  const profile = shuffled(all.filter((i) => !factMeta[i].personal));
+  bag = [];
+  for (let k = 0; k < Math.max(personal.length, profile.length); k += 1) {
+    if (k < personal.length) bag.push(personal[k]);
+    if (k < profile.length) bag.push(profile[k]);
+  }
+  // No back-to-back repeat across rounds.
+  if (bag.length > 2 && bag[0] === state.factIndex) [bag[0], bag[2]] = [bag[2], bag[0]];
+}
+
+function nextFact(golden: boolean) {
+  if (factMeta.length === 0) return -1;
+  if (golden) {
+    // Golden fish: a special fact, preferring one not shown yet this round (taken out of the bag).
+    const special = factMeta.map((_, i) => i).filter((i) => factMeta[i].special);
+    if (special.length > 0) {
+      const pending = bag.find((i) => factMeta[i].special);
+      if (pending !== undefined) {
+        bag.splice(bag.indexOf(pending), 1);
+        return pending;
+      }
+      const others = special.filter((i) => i !== state.factIndex);
+      const pool = others.length > 0 ? others : special;
+      return pool[Math.floor(Math.random() * pool.length)];
+    }
+  }
+  if (bag.length === 0) refillBag();
+  return bag.shift() ?? -1;
 }
 
 export function setFishingNear(near: boolean) {
@@ -148,7 +186,7 @@ export function fishingReelDone() {
     phase: "caught",
     caught: state.caught + 1,
     golden: state.golden + (state.lastGolden ? 1 : 0),
-    factIndex: nextFact(),
+    factIndex: nextFact(state.lastGolden),
   });
 }
 

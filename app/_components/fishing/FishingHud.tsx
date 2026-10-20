@@ -14,7 +14,7 @@ import {
   clearFishingNotice,
   exitFishing,
   hookFish,
-  setFishingFactCount,
+  setFishingFacts,
   startFishing,
   useFishingState,
 } from "./fishingStore";
@@ -36,7 +36,7 @@ export function FishingHud() {
   const facts = useMemo(() => getFishingFacts(locale), [locale]);
   const active = s.phase !== "off";
 
-  useEffect(() => setFishingFactCount(facts.length), [facts.length]);
+  useEffect(() => setFishingFacts(facts), [facts]);
 
   useEffect(() => {
     if (!s.unreachable) return;
@@ -84,7 +84,7 @@ export function FishingHud() {
           : s.phase === "caught" || s.phase === "reeling"
             ? ""
             : t("waiting");
-  const fact = s.factIndex >= 0 ? facts[s.factIndex] : "";
+  const fact = facts[s.factIndex]?.text ?? "";
 
   return (
     <>
