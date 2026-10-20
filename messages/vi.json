@@ -43,6 +43,8 @@
     "projectsFallbackTitle": "Dự án",
     "projectFallbackDescription": "Chọn một con chim để xem thông tin chi tiết dự án.",
     "lockedMilestone": "Chưa mở khóa, chờ mèo tới cột cờ này.",
+    "currentMilestone": "Mèo đang ở đây",
+    "headingMilestone": "Mèo đang tới",
     "github": "GitHub",
     "noGithub": "Chưa có GitHub",
     "projectRole": "Vai trò",

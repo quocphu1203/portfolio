@@ -15,6 +15,7 @@ import { useReducedMotion } from "../performance/useReducedMotion";
 import { getSkillsExtraText } from "../../../mock/skillsData";
 import { AboutTypewriter } from "./AboutTypewriter";
 import { CatAvatar } from "./CatAvatar";
+import { ExperienceMilestoneList } from "./ExperienceMilestoneList";
 import { SkillCrateList } from "./SkillCrateList";
 
 export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
@@ -26,6 +27,8 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
     flyToDefault,
     selectedProjectId,
     experienceUnlockedCount,
+    experienceCatMilestone,
+    requestExperienceMilestone,
     exploreMode,
     setActiveSection,
     closeProject,
@@ -417,42 +420,17 @@ export function PortfolioInfoPanel({ visible }: { visible: boolean }) {
                   </div>
                 )}
                 {isExperience && (
-                  <ol className="mb-6 space-y-4">
-                    {experienceMilestones.map((milestone, index) => (
-                      <li key={milestone.id} className="relative pl-7">
-                        <span className="absolute top-2 left-0 h-3 w-3 rounded-full border border-[#9ad0e4]/80 bg-[#2b7b96]" />
-                        {index < experienceMilestones.length - 1 && (
-                          <span className="absolute top-5 left-[5px] h-[calc(100%+0.75rem)] w-[2px] bg-linear-to-b from-[#7fb3c6]/80 to-[#2e4f60]/20" />
-                        )}
-                        <article className="rounded-xl border border-[#5f7d8b]/65 bg-[#11212a]/45 p-4">
-                          <p className="mb-1 text-xs tracking-[0.14em] text-[#9cc4d4] uppercase">
-                            {milestone.period}
-                          </p>
-                          {index < experienceUnlockedCount ? (
-                            <>
-                              <h3 className="text-lg font-medium text-[#e7f4fb]">{milestone.title}</h3>
-                              <p className="mb-2 text-sm text-[#b6d3df]">{milestone.company}</p>
-                              <p className="mb-3 whitespace-pre-line text-sm leading-relaxed text-[#c4dbe6]">
-                                {milestone.summary}
-                              </p>
-                              <ul className="flex flex-wrap gap-2">
-                                {milestone.skills.map((skill) => (
-                                  <li
-                                    key={skill}
-                                    className="rounded-full border border-[#5f8495]/70 bg-[#17313d]/55 px-2.5 py-1 text-xs text-[#d1e7f2]"
-                                  >
-                                    {skill}
-                                  </li>
-                                ))}
-                              </ul>
-                            </>
-                          ) : (
-                            <p className="text-sm text-[#8fa6b1]">{t("lockedMilestone")}</p>
-                          )}
-                        </article>
-                      </li>
-                    ))}
-                  </ol>
+                  <ExperienceMilestoneList
+                    milestones={experienceMilestones}
+                    unlockedCount={experienceUnlockedCount}
+                    catIndex={experienceCatMilestone.at}
+                    headingIndex={experienceCatMilestone.heading}
+                    onPick={exploreMode ? undefined : requestExperienceMilestone}
+                    reducedMotion={reducedMotion}
+                    lockedLabel={t("lockedMilestone")}
+                    currentLabel={t("currentMilestone")}
+                    headingLabel={t("headingMilestone")}
+                  />
                 )}
                 {!isProjects && !isExperience && copy.links && copy.links.length > 0 && (
                   <ul className={["flex flex-wrap gap-2", isSkills || isProjects ? "mb-8" : "mb-5"].join(" ")}>

@@ -5,7 +5,7 @@ import { Html } from "@react-three/drei";
 import { useGLTF } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useLocale, useTranslations } from "next-intl";
-import { RigidBody, type RapierRigidBody, useRapier } from "@react-three/rapier";
+import { RigidBody, type RapierRigidBody } from "@react-three/rapier";
 import * as THREE from "three";
 import { clone } from "three/examples/jsm/utils/SkeletonUtils.js";
 
@@ -19,7 +19,6 @@ import { MilestonePennant } from "./MilestonePennant";
 
 const CAT_SCALE = 1 / 80;
 const CAT_WALL_CLEARANCE = 0;
-const CAT_COLLISION_RADIUS = 0.05;
 const DOC_SURFACE_OFFSET_Y = 0.005;
 const FLAG_OUTER_OFFSET = 0.55;
 const FLAG_SURFACE_OFFSET_Y = 0.05;
@@ -37,6 +36,29 @@ const CAT_BODY_DIP_X = 0;
 const CAT_HEAD_LIFT_X = 0.18;
 // Journey speed profile (world units / seconds): smooth accelerate -> cruise -> decelerate to a stop.
 const CAT_CRUISE_SPEED = 1.3;
+/**
+ * Guided journey: the cat advances along the precomputed route itself (never off it, never blocked), catching up
+ * with the time-based profile at most this fast, so a frame hitch never turns into a jump.
+ */
+const CAT_GUIDED_MAX_SPEED = CAT_CRUISE_SPEED * 1.3;
+const CAT_GUIDED_MAX_DT = 0.1;
+/** Running to a milestone picked in the Experience dialog (same route, either direction). */
+const CAT_TARGET_CRUISE = CAT_CRUISE_SPEED;
+/** Slightly faster cruise when the picked milestone is far along the route. */
+const CAT_TARGET_FAR_CRUISE = 1.8;
+const CAT_TARGET_FAR_DISTANCE = 3;
+const CAT_TARGET_ACCEL = 1.6;
+/** Braking curve (v = sqrt(2 * decel * remaining)) so it eases into the stop; braking may use up to this rate. */
+const CAT_TARGET_DECEL = 1.1;
+const CAT_TARGET_BRAKE_LIMIT = 1.8;
+const CAT_TARGET_ARRIVE_DISTANCE = 0.005;
+/** Running speed fades in as the heading lines up with the way to go (cos of the heading error). */
+const TURN_ALIGN_MIN = 0.35;
+const TURN_ALIGN_RANGE = 0.5;
+/** Where along the route a milestone is: closest route point to its flag, searched near its unlock distance. */
+const MILESTONE_STOP_WINDOW = 1.5;
+/** How far along the route (samples) to look for a turn-around spot. */
+const TURN_SEARCH_SAMPLES = 40;
 const CAT_ACCEL_SECONDS = 0.7;
 const CAT_DECEL_SECONDS = 1.0;
 const CAT_START_DELAY_SECONDS = 0.35;
@@ -112,6 +134,7 @@ const CAT_SIT_MAX_PITCH = 0.62;
 const CAT_SIT_NECK_COUNTER = 0.55;
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
 const WORLD_DOWN = new THREE.Vector3(0, -1, 0);
+const ONE_SCALE = new THREE.Vector3(1, 1, 1);
 const PENNANT_OFFSET: [number, number, number] = [0.16, 0, 0.1];
 const TORCH_SCALE = 0.35;
 const TORCH_FLAME_OFFSET: [number, number, number] = [0, 0.23, 0];
@@ -321,7 +344,327 @@ function wrapAngle(a: number) {
   return Math.atan2(Math.sin(a), Math.cos(a));
 }
 
-type JourneyPath = { points: THREE.Vector3[]; cum: number[]; length: number; stop: THREE.Vector3 | null };
+type JourneyPath = {
+  points: THREE.Vector3[];
+  cum: number[];
+  length: number;
+  stop: THREE.Vector3 | null;
+  /** What the route was kept clear of (also used to find spots where the cat can turn around). */
+  obstacles?: RouteObstacles;
+};
+
+const ROUTE_GROUND_NAMES = new Set(["doc", "Object_231", "Object_232"]);
+const ROUTE_SKIP_GROUPS = new Set(["experience-milestone-trail", "weather-effects", "project-bird-flock"]);
+/**
+ * Cat body box in the body frame (x lateral, y up, +z = back/tail), slightly inflated, used to keep the route clear.
+ * Symmetric front / back (tail length both ways): the cat also runs the route backwards to a picked milestone.
+ */
+const CAT_ROUTE_BODY_MIN = new THREE.Vector3(-0.1, 0.06, -0.44);
+const CAT_ROUTE_BODY_MAX = new THREE.Vector3(0.1, 0.3, 0.44);
+/** Sideways detour candidates (world units) and the ramp length used to blend a detour in and out. */
+const CAT_ROUTE_DETOUR_STEPS = [0.06, 0.12, 0.18, 0.24, 0.32, 0.4, 0.5, 0.6, 0.75, 0.9, 1.05, 1.2, 1.35, 1.5];
+const CAT_ROUTE_RAMP = 0.9;
+const CAT_ROUTE_HEADING_SLACK = 0.2;
+const CAT_ROUTE_SIDE_SLACK = 0.08;
+const CAT_ROUTE_WATER_MARGIN = 0.2;
+/** Farthest body-box corner from the cat's origin (plus a little): obstacles beyond this cannot touch it. */
+const ROUTE_BODY_REACH = 0.6;
+/** Detoured routes per scene (geometry is static): built once, reused on every Experience visit. */
+const detouredRouteCache = new WeakMap<THREE.Object3D, Map<string, THREE.Vector3[]>>();
+const BOX_EDGES: [number, number][] = [
+  [0, 1], [2, 3], [4, 5], [6, 7], [0, 2], [1, 3], [4, 6], [5, 7], [0, 4], [1, 5], [2, 6], [3, 7],
+  [0, 7], [1, 6], [2, 5], [3, 4],
+];
+
+type RouteObstacles = {
+  meshes: THREE.Mesh[];
+  /** World bounding sphere per mesh (same order), to test only the obstacles near a sample. */
+  spheres: THREE.Sphere[];
+  /** Vertical posts (torches, pennant poles): xz centre + radius. */
+  posts: { x: number; z: number; r: number }[];
+};
+
+/** Visible meshes near the route that the cat must not pass through (rocks, trees, bushes, ruins...). */
+function collectRouteObstacles(points: THREE.Vector3[], scene: THREE.Object3D) {
+  const box = new THREE.Box3().setFromPoints(points).expandByScalar(1.2);
+  const meshes: THREE.Mesh[] = [];
+  const spheres: THREE.Sphere[] = [];
+  const visit = (obj: THREE.Object3D) => {
+    if (!obj.visible || ROUTE_SKIP_GROUPS.has(obj.name) || ROUTE_GROUND_NAMES.has(obj.name)) return;
+    const mesh = obj as THREE.Mesh;
+    if (mesh.isMesh && !(mesh as THREE.InstancedMesh).isInstancedMesh && mesh.geometry) {
+      const material = mesh.material as (THREE.Material & { uniforms?: Record<string, unknown> }) | undefined;
+      if (!material?.uniforms?.mirrorSampler) {
+        if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
+        if (mesh.geometry.boundingSphere) {
+          const sphere = mesh.geometry.boundingSphere.clone().applyMatrix4(mesh.matrixWorld);
+          if (box.intersectsSphere(sphere)) {
+            meshes.push(mesh);
+            spheres.push(sphere);
+          }
+        }
+      }
+    }
+    for (const child of obj.children) visit(child);
+  };
+  visit(scene);
+  return { meshes, spheres };
+}
+
+/** Does the cat's body box, standing at `p` facing `heading`, touch any obstacle? */
+function routeBodyBlocked(
+  p: THREE.Vector3,
+  heading: number,
+  obstacles: RouteObstacles,
+  ray: THREE.Raycaster,
+  boxMin = CAT_ROUTE_BODY_MIN,
+  boxMax = CAT_ROUTE_BODY_MAX
+) {
+  const q = catBodyQuaternion(WORLD_UP, heading);
+  const m = new THREE.Matrix4().compose(p, q, ONE_SCALE);
+  const corners: THREE.Vector3[] = [];
+  for (let i = 0; i < 8; i += 1) {
+    corners.push(
+      new THREE.Vector3(
+        i & 1 ? boxMax.x : boxMin.x,
+        i & 2 ? boxMax.y : boxMin.y,
+        i & 4 ? boxMax.z : boxMin.z
+      ).applyMatrix4(m)
+    );
+  }
+  // Posts: distance from the post axis to the body rectangle (in the body's xz frame).
+  if (obstacles.posts.length > 0) {
+    const inv = m.clone().invert();
+    const local = new THREE.Vector3();
+    for (const post of obstacles.posts) {
+      local.set(post.x, p.y + 0.15, post.z).applyMatrix4(inv);
+      const dx = Math.max(boxMin.x - local.x, 0, local.x - boxMax.x);
+      const dz = Math.max(boxMin.z - local.z, 0, local.z - boxMax.z);
+      if (dx * dx + dz * dz < post.r * post.r) return true;
+    }
+  }
+  // Only meshes whose bounding sphere reaches the body (keeps the route build cheap).
+  const near: THREE.Mesh[] = [];
+  for (let i = 0; i < obstacles.meshes.length; i += 1) {
+    if (obstacles.spheres[i].distanceToPoint(p) < ROUTE_BODY_REACH) near.push(obstacles.meshes[i]);
+  }
+  if (near.length === 0) return false;
+  const dir = new THREE.Vector3();
+  for (const [a, b] of BOX_EDGES) {
+    dir.subVectors(corners[b], corners[a]);
+    const len = dir.length();
+    ray.set(corners[a], dir.divideScalar(len));
+    ray.far = len;
+    if (ray.intersectObjects(near, false).length > 0) return true;
+  }
+  // Fully inside a big mesh (no edge crosses a surface): look down through the body from its top.
+  const top = new THREE.Vector3(0, boxMax.y, (boxMin.z + boxMax.z) / 2).applyMatrix4(m);
+  ray.set(top, WORLD_DOWN);
+  ray.far = boxMax.y - boxMin.y;
+  return ray.intersectObjects(near, false).length > 0;
+}
+
+/**
+ * Detour the guided route around obstacles: every sample is tested with the cat's body box (facing along the
+ * route); blocked stretches shift sideways (one side per stretch, smallest clear offset on walkable ground above
+ * the water), blended in / out over CAT_ROUTE_RAMP, and re-tested until clear. Runs once when the route is built.
+ */
+function detourRoute(
+  points: THREE.Vector3[],
+  obstacles: RouteObstacles,
+  walkMeshes: THREE.Mesh[],
+  waterLevel: number
+) {
+  const n = points.length;
+  if (n < 3 || walkMeshes.length === 0) return;
+  const ray = new THREE.Raycaster();
+  const down = new THREE.Raycaster();
+  const base = points.map((p) => p.clone());
+  const spacing = Math.max(1e-3, base[0].distanceTo(base[n - 1]) > 0 ? totalLength(base) / (n - 1) : 0.05);
+  const rampSamples = Math.max(2, Math.round(CAT_ROUTE_RAMP / spacing));
+  const headingAt = (pts: THREE.Vector3[], i: number) => {
+    const a = pts[Math.max(0, i - 2)];
+    const b = pts[Math.min(n - 1, i + 2)];
+    return Math.atan2(b.x - a.x, b.z - a.z);
+  };
+  const sideAt = (i: number) => {
+    const h = headingAt(base, i);
+    return new THREE.Vector3(Math.cos(h), 0, -Math.sin(h));
+  };
+  // Ground under (x, z) near height y: path or grass, above the ocean.
+  const groundAt = (x: number, z: number, y: number) => {
+    down.set(new THREE.Vector3(x, y + 0.6, z), WORLD_DOWN);
+    down.far = 1.4;
+    const hit = down.intersectObjects(walkMeshes, false)[0];
+    if (!hit || hit.point.y < waterLevel + CAT_ROUTE_WATER_MARGIN) return null;
+    return new THREE.Vector3(hit.point.x, hit.point.y + DOC_SURFACE_OFFSET_Y, hit.point.z);
+  };
+  const offsets = new Array<number>(n).fill(0);
+  // The same (sample, offset) spots are probed again on later passes: ray the ground only once for each.
+  const groundMemo = new Map<string, THREE.Vector3 | null>();
+  const at = (i: number, off: number) => {
+    if (off === 0) return base[i].clone();
+    const key = `${i}:${off.toFixed(4)}`;
+    if (!groundMemo.has(key)) {
+      const side = sideAt(i);
+      groundMemo.set(key, groundAt(base[i].x + side.x * off, base[i].z + side.z * off, base[i].y));
+    }
+    return groundMemo.get(key)?.clone() ?? null;
+  };
+  // A detour spot must stay clear with some slack: a bit further out, and with the heading off by a little
+  // (the cat's heading lags the route on curves and its body tilts on slopes).
+  const clearWithSlack = (k: number, off: number, sign: number, heading: number) => {
+    const p = at(k, off);
+    if (!p) return false;
+    for (const dh of [0, CAT_ROUTE_HEADING_SLACK, -CAT_ROUTE_HEADING_SLACK]) {
+      if (routeBodyBlocked(p, heading + dh, obstacles, ray)) return false;
+    }
+    const further = at(k, off + sign * CAT_ROUTE_SIDE_SLACK);
+    return Boolean(further && !routeBodyBlocked(further, heading, obstacles, ray));
+  };
+  for (let iter = 0; iter < 4; iter += 1) {
+    const current = base.map((_, i) => at(i, offsets[i]) ?? base[i].clone());
+    const blocked = current.map((p, i) => i > 0 && i < n - 1 && routeBodyBlocked(p, headingAt(current, i), obstacles, ray));
+    if (!blocked.some(Boolean)) break;
+    // Stretches of consecutive blocked samples.
+    const need = new Array<number>(n).fill(0);
+    for (let i = 1; i < n - 1; i += 1) {
+      if (!blocked[i]) continue;
+      let j = i;
+      while (j + 1 < n - 1 && blocked[j + 1]) j += 1;
+      // One side per stretch (no zig-zag); each sample gets the smallest extra offset that clears it there.
+      let best: { sign: number; amounts: number[]; misses: number; total: number } | null = null;
+      for (const sign of [1, -1]) {
+        const amounts: number[] = [];
+        let misses = 0;
+        let total = 0;
+        for (let k = i; k <= j; k += 1) {
+          let found = 0;
+          for (const step of CAT_ROUTE_DETOUR_STEPS) {
+            if (clearWithSlack(k, offsets[k] + sign * step, sign, headingAt(current, k))) {
+              found = step;
+              break;
+            }
+          }
+          if (!found) misses += 1;
+          amounts.push(found);
+          total += found;
+        }
+        if (!best || misses < best.misses || (misses === best.misses && total < best.total)) {
+          best = { sign, amounts, misses, total };
+        }
+      }
+      if (best) best.amounts.forEach((amount, k) => (need[i + k] = best.sign * amount));
+      i = j;
+    }
+    // Smooth envelope over the needs (cosine falloff over the ramp), so the detour eases in / out and never
+    // dips back between two needs; then add it where the shifted point still has ground under it.
+    const add = new Array<number>(n).fill(0);
+    for (let k = 1; k < n - 1; k += 1) {
+      let pos = 0;
+      let neg = 0;
+      for (let d = -rampSamples; d <= rampSamples; d += 1) {
+        const j = k + d;
+        if (j <= 0 || j >= n - 1 || need[j] === 0) continue;
+        const w = 0.5 + 0.5 * Math.cos((Math.PI * Math.abs(d)) / (rampSamples + 1));
+        if (need[j] > 0) pos = Math.max(pos, need[j] * w);
+        else neg = Math.min(neg, need[j] * w);
+      }
+      add[k] = Math.abs(neg) > pos ? neg : pos;
+    }
+    for (let k = 1; k < n - 1; k += 1) {
+      if (Math.abs(add[k]) > 1e-4 && at(k, offsets[k] + add[k])) offsets[k] += add[k];
+    }
+  }
+  for (let i = 1; i < n - 1; i += 1) {
+    const p = at(i, offsets[i]);
+    if (p) points[i].copy(p);
+  }
+}
+
+/** Turning on the spot sweeps the real body (short front, long tail) through these offsets on one side. */
+const TURN_HEADING_OFFSETS = [1, 2, 3, 4, 5].map((k) => (k * Math.PI) / 6);
+const CAT_TURN_BODY_MIN = new THREE.Vector3(-0.1, 0.06, -0.28);
+type TurnSides = { plus: boolean; minus: boolean };
+const turnSidesCache = new WeakMap<JourneyPath, Map<number, TurnSides>>();
+const turnRay = new THREE.Raycaster();
+
+function routeHeadingAt(points: THREE.Vector3[], i: number) {
+  const a = points[Math.max(0, i - 2)];
+  const b = points[Math.min(points.length - 1, i + 2)];
+  return Math.atan2(b.x - a.x, b.z - a.z);
+}
+
+/**
+ * Which way the cat can turn around on route sample i without its body touching an obstacle: "plus" sweeps headings
+ * route heading + 30..150 degrees, "minus" the other side (cached per route).
+ */
+function routeTurnSides(path: JourneyPath, i: number): TurnSides {
+  const obstacles = path.obstacles;
+  if (!obstacles) return { plus: true, minus: true };
+  let cache = turnSidesCache.get(path);
+  if (!cache) {
+    cache = new Map();
+    turnSidesCache.set(path, cache);
+  }
+  const known = cache.get(i);
+  if (known) return known;
+  const p = path.points[i];
+  const heading = routeHeadingAt(path.points, i);
+  const sideClear = (sign: number) =>
+    TURN_HEADING_OFFSETS.every(
+      (offset) => !routeBodyBlocked(p, heading + sign * offset, obstacles, turnRay, CAT_TURN_BODY_MIN)
+    );
+  const plus = sideClear(1);
+  const sides = { plus, minus: sideClear(-1) };
+  cache.set(i, sides);
+  return sides;
+}
+
+function routeTurnClear(path: JourneyPath, i: number) {
+  const sides = routeTurnSides(path, i);
+  return sides.plus || sides.minus;
+}
+
+/** Route sample index nearest a route distance. */
+function routeIndexAt(path: JourneyPath, distance: number) {
+  const { cum } = path;
+  let lo = 0;
+  let hi = cum.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (cum[mid] <= distance) lo = mid;
+    else hi = mid;
+  }
+  return distance - cum[lo] <= cum[hi] - distance ? lo : hi;
+}
+
+function totalLength(points: THREE.Vector3[]) {
+  let len = 0;
+  for (let i = 1; i < points.length; i += 1) len += points[i].distanceTo(points[i - 1]);
+  return len;
+}
+
+/**
+ * Guided journey state: route distance, and (once a milestone is picked in the dialog) the target distance the cat
+ * runs to instead of following the timed journey. speed is signed (negative = back along the route).
+ */
+function freshJourney() {
+  return {
+    dist: 0,
+    placed: false,
+    target: null as number | null,
+    targetIndex: -1,
+    speed: 0,
+    cruise: CAT_TARGET_CRUISE,
+    /** Turn-around spot to brake to first when the target is behind a moving cat (null: go straight there). */
+    via: null as number | null,
+    /** Direction the cat last ran along the route (+1 forward, -1 back). */
+    facing: 1,
+    /** Forced turning direction while turning around (+1 / -1 heading sense, 0 = shortest way). */
+    turnSide: 0,
+  };
+}
 
 function samplePolyline(path: JourneyPath, distance: number) {
   const { points, cum } = path;
@@ -451,6 +794,8 @@ export function ExperienceMilestoneTrail() {
     experienceUnlockedCount,
     setExperienceUnlockedCount,
     setExperienceCatPose,
+    experienceMilestoneRequest,
+    setExperienceCatMilestone,
     exploreMode,
     introPhase,
     introFrame,
@@ -460,7 +805,6 @@ export function ExperienceMilestoneTrail() {
   const catActive = activeSection === "credits" || exploreMode || introActive;
   const reducedMotion = useReducedMotion();
   const { scene: worldScene, gl, camera } = useThree();
-  const { world, rapier } = useRapier();
   const { scene: catScene, animations } = useGLTF("/cat_rigged.glb?v=4") as {
     scene: THREE.Object3D;
     animations: THREE.AnimationClip[];
@@ -507,6 +851,9 @@ export function ExperienceMilestoneTrail() {
   const runningRef = useRef(false);
   const unlockedRef = useRef(0);
   const prevPosRef = useRef(new THREE.Vector3());
+  // Guided journey: distance travelled along journeyPath, and whether the cat was put on the route start yet.
+  const journeyRef = useRef(freshJourney());
+  const handledMilestoneRequestRef = useRef(0);
   const headingRef = useRef(0);
   const surfaceNormalRef = useRef(new THREE.Vector3(0, 1, 0));
   const lastPoseUpdateAtRef = useRef(0);
@@ -693,10 +1040,112 @@ export function ExperienceMilestoneTrail() {
       const p = stop && progress >= approachStart ? new THREE.Vector3().lerpVectors(base, stop, easeOutCubic(mix)) : base;
       points.push(offsetOutward(p, tangentAt(pathPoints, progress), CAT_WALL_CLEARANCE));
     }
+    // Detour around rocks / trees / bushes and the milestone torches + pennant poles beside the path.
+    const posts: RouteObstacles["posts"] = [];
+    for (const stopItem of milestoneStops) {
+      if (!stopItem.position) continue;
+      const yaw = (() => {
+        const t = tangentAt(pathPoints, stopItem.progress ?? 0);
+        return Math.atan2(t.x, t.z);
+      })();
+      const torch = FIXED_TORCH_OFFSETS[Math.min(stopItem.idx, FIXED_TORCH_OFFSETS.length - 1)];
+      for (const [offset, r] of [
+        [torch, 0.08],
+        [PENNANT_OFFSET, 0.05],
+      ] as [[number, number, number], number][]) {
+        const w = new THREE.Vector3(...offset).applyAxisAngle(WORLD_UP, yaw).add(stopItem.position);
+        posts.push({ x: w.x, z: w.z, r });
+      }
+    }
+    const walkMeshes = [...docMeshes, ...groundMeshes.filter((mesh) => !docMeshes.includes(mesh))];
+    const cacheKey = `${points.length}:${points[0].toArray().map((v) => v.toFixed(3))}:${points[points.length - 1]
+      .toArray()
+      .map((v) => v.toFixed(3))}:${milestoneStops.length}`;
+    let sceneCache = detouredRouteCache.get(worldScene);
+    if (!sceneCache) {
+      sceneCache = new Map();
+      detouredRouteCache.set(worldScene, sceneCache);
+    }
+    const cached = sceneCache.get(cacheKey);
+    const obstacles: RouteObstacles = { ...collectRouteObstacles(points, worldScene), posts };
+    if (cached) {
+      cached.forEach((p, i) => points[i].copy(p));
+    } else if (walkMeshes.length > 0) {
+      detourRoute(points, obstacles, walkMeshes, resolveWaterLevel(worldScene));
+      sceneCache.set(cacheKey, points.map((p) => p.clone()));
+    }
     const cum = [0];
     for (let i = 1; i < points.length; i += 1) cum.push(cum[i - 1] + points[i].distanceTo(points[i - 1]));
-    return { points, cum, length: cum[cum.length - 1], stop };
-  }, [pathPoints, targetJourneyProgress, milestoneStops, docMeshes]);
+    return { points, cum, length: cum[cum.length - 1], stop, obstacles };
+  }, [pathPoints, targetJourneyProgress, milestoneStops, docMeshes, groundMeshes, worldScene]);
+  // Route distance of each milestone (by milestone index): the route's closest point to its flag; the last one is
+  // the journey's end stop beside its flag.
+  const milestoneDists = useMemo(() => {
+    const dists = new Map<number, number>();
+    const { points, cum, length } = journeyPath;
+    if (points.length < 2) return dists;
+    milestoneStops.forEach((stopItem, k) => {
+      if (!stopItem.position) return;
+      if (k === milestoneStops.length - 1) {
+        // The journey's end stop beside the last flag, or the nearest spot before it with room to turn around.
+        let i = points.length - 1;
+        while (i > 0 && cum[points.length - 1] - cum[i] < MILESTONE_STOP_WINDOW && !routeTurnClear(journeyPath, i)) i -= 1;
+        dists.set(stopItem.idx, routeTurnClear(journeyPath, i) ? cum[i] : length);
+        return;
+      }
+      const unlockDist =
+        targetJourneyProgress > 0 ? Math.min(length, ((stopItem.progress ?? 1) / targetJourneyProgress) * length) : length;
+      // Closest route spot to the flag where the cat can also turn around (it may leave in either direction).
+      const candidates: { i: number; gap: number }[] = [];
+      for (let i = 0; i < points.length; i += 1) {
+        if (Math.abs(cum[i] - unlockDist) > MILESTONE_STOP_WINDOW) continue;
+        candidates.push({ i, gap: Math.hypot(points[i].x - stopItem.position.x, points[i].z - stopItem.position.z) });
+      }
+      candidates.sort((a, b) => a.gap - b.gap);
+      const best = candidates.find((c) => routeTurnClear(journeyPath, c.i)) ?? candidates[0];
+      dists.set(stopItem.idx, best ? cum[best.i] : unlockDist);
+    });
+    return dists;
+  }, [journeyPath, milestoneStops, targetJourneyProgress]);
+
+  // A milestone picked in the Experience dialog: run there along the same route (replaces the timed journey).
+  useEffect(() => {
+    if (!experienceMilestoneRequest || experienceMilestoneRequest.seq === handledMilestoneRequestRef.current) return;
+    if (activeSection !== "credits" || exploreMode) return;
+    const target = milestoneDists.get(experienceMilestoneRequest.index);
+    if (target === undefined) return;
+    handledMilestoneRequestRef.current = experienceMilestoneRequest.seq;
+    const journey = journeyRef.current;
+    if (journey.target === null) journey.speed = catSpeedRef.current; // keep the timed journey's pace (forward)
+    journey.target = target;
+    journey.targetIndex = experienceMilestoneRequest.index;
+    journey.cruise =
+      Math.abs(target - journey.dist) > CAT_TARGET_FAR_DISTANCE ? CAT_TARGET_FAR_CRUISE : CAT_TARGET_CRUISE;
+    journey.via = null;
+    if (journeyPath.points.length > 1 && Math.sign(target - journey.dist) === -journey.facing) {
+      // Target is behind: turn around only where the body has room (first such spot past the braking distance).
+      const here = routeIndexAt(journeyPath, journey.dist);
+      const atRest = Math.abs(journey.speed) < 0.05 && Math.abs(journeyPath.cum[here] - journey.dist) < 0.03;
+      if (!(atRest && routeTurnClear(journeyPath, here))) {
+        const brakeDist = (journey.speed * journey.speed) / (2 * CAT_TARGET_BRAKE_LIMIT);
+        const from = routeIndexAt(journeyPath, journey.dist + journey.facing * brakeDist);
+        for (let k = 0; k <= TURN_SEARCH_SAMPLES; k += 1) {
+          const i = from + journey.facing * k;
+          if (i < 0 || i >= journeyPath.points.length) break;
+          if ((journeyPath.cum[i] - journey.dist) * journey.facing < brakeDist - 1e-3) continue;
+          if (routeTurnClear(journeyPath, i)) {
+            journey.via = journeyPath.cum[i];
+            break;
+          }
+        }
+      }
+    }
+    const alreadyThere = journey.placed && Math.abs(target - journey.dist) <= CAT_TARGET_ARRIVE_DISTANCE;
+    if (!alreadyThere) runningRef.current = true;
+    setExperienceCatMilestone(
+      alreadyThere ? { at: journey.targetIndex, heading: null } : { at: -1, heading: journey.targetIndex }
+    );
+  }, [experienceMilestoneRequest, activeSection, exploreMode, milestoneDists, journeyPath, setExperienceCatMilestone]);
   useEffect(() => {
     const bodyBones: THREE.Bone[] = [];
     const headBones: THREE.Bone[] = [];
@@ -803,6 +1252,8 @@ export function ExperienceMilestoneTrail() {
     if (activeSection !== "credits" || exploreMode || pathPoints.length < 2) return;
     elapsedRef.current = 0;
     runningRef.current = true;
+    // The RigidBody may mount in this same commit (ref still null): the first journey frame places the cat then.
+    journeyRef.current = freshJourney();
     unlockedRef.current = 0;
     setExperienceUnlockedCount(0);
     catSpeedRef.current = 0;
@@ -1595,6 +2046,7 @@ export function ExperienceMilestoneTrail() {
       groundPaws(walkWeight, delta);
     }
     if (exploreMode) {
+      if (catGroundGroupRef.current && !catGroundGroupRef.current.visible) catGroundGroupRef.current.visible = true;
       if (introPhase !== "idle") {
         exploreIntroStep(Math.min(delta, 0.1));
       } else {
@@ -1607,23 +2059,101 @@ export function ExperienceMilestoneTrail() {
       introStep(Math.min(delta, 0.1));
       return;
     }
-    if (activeSection !== "credits") return;
+    if (activeSection !== "credits") {
+      journeyRef.current.placed = false;
+      return;
+    }
+    // Hidden until the journey puts it on the route start (the first frames run before the reset effect).
+    if (!journeyRef.current.placed && catGroundGroupRef.current) catGroundGroupRef.current.visible = false;
     if (!runningRef.current) return;
     if (pathPoints.length < 2) return;
 
-    elapsedRef.current += delta;
+    // Clamp dt: after a hitch the cat catches up gradually instead of jumping along the route.
+    const dt = Math.min(delta, CAT_GUIDED_MAX_DT);
+    elapsedRef.current += dt;
     const profile = journeyProfile(journeyPath.length, elapsedRef.current - CAT_START_DELAY_SECONDS);
-    catSpeedRef.current = profile.speed;
-    const targetPos = samplePolyline(journeyPath, profile.distance);
-    const aheadPos = samplePolyline(journeyPath, Math.min(journeyPath.length, profile.distance + CAT_LOOKAHEAD));
-    const progress = targetJourneyProgress * (journeyPath.length > 0 ? profile.distance / journeyPath.length : 1);
+    const journey = journeyRef.current;
+    const body = catBodyRef.current;
+    const catGroup = catGroundGroupRef.current;
+    // Shown from the frame after it was placed (the physics body syncs the mesh one step later).
+    if (journey.placed && catGroup && !catGroup.visible) catGroup.visible = true;
+    if (!journey.placed) {
+      // Hidden until it stands on the route start (no flash / jump from its previous position).
+      if (catGroup) catGroup.visible = false;
+      if (body && journeyPath.points.length > 0) {
+        const start = journeyPath.points[0];
+        body.setTranslation({ x: start.x, y: start.y, z: start.z }, true);
+        body.setNextKinematicTranslation({ x: start.x, y: start.y, z: start.z });
+        catPosRef.current.copy(start);
+        journey.placed = true;
+        journey.dist = 0;
+      }
+    }
+    // Follow the route by arc length: the cat moves along it at a capped speed toward the profile's distance,
+    // or (milestone picked in the dialog) accelerates / brakes toward the target distance in either direction.
+    const prevDist = journey.dist;
+    let arrived = false;
+    let turnHeading: number | null = null;
+    if (journey.target === null) {
+      journey.dist = Math.max(prevDist, Math.min(profile.distance, prevDist + CAT_GUIDED_MAX_SPEED * dt));
+    } else {
+      const goal = journey.via ?? journey.target;
+      const remaining = goal - prevDist;
+      const brake = Math.sqrt(2 * CAT_TARGET_DECEL * Math.abs(remaining));
+      // Face the way it is going before running: turn on the spot while the heading is far off (no sideways slide).
+      const travelDir = Math.sign(remaining) || journey.facing;
+      const look = samplePolyline(
+        journeyPath,
+        THREE.MathUtils.clamp(prevDist + travelDir * CAT_LOOKAHEAD, 0, journeyPath.length)
+      ).sub(catPosRef.current);
+      if (Math.hypot(look.x, look.z) > 0.01) turnHeading = Math.atan2(look.x, look.z);
+      const align = turnHeading === null ? 1 : Math.cos(wrapAngle(turnHeading - headingRef.current));
+      if (turnHeading !== null && align < 0 && journey.turnSide === 0) {
+        // Turning around: pick the side the body has room to sweep (facing back swaps which side is which).
+        const sides = routeTurnSides(journeyPath, routeIndexAt(journeyPath, prevDist));
+        const okPlus = journey.facing > 0 ? sides.plus : sides.minus;
+        const okMinus = journey.facing > 0 ? sides.minus : sides.plus;
+        const shortest = Math.sign(wrapAngle(turnHeading - headingRef.current)) || 1;
+        const shortestOk = shortest > 0 ? okPlus : okMinus;
+        const otherOk = shortest > 0 ? okMinus : okPlus;
+        journey.turnSide = shortestOk ? shortest : otherOk ? -shortest : 0;
+      } else if (align > 0.9) {
+        journey.turnSide = 0;
+      }
+      const desired =
+        Math.sign(remaining) * Math.min(journey.cruise, brake) * smoothstep01((align - TURN_ALIGN_MIN) / TURN_ALIGN_RANGE);
+      const speedingUp = Math.abs(desired) > Math.abs(journey.speed) && desired * journey.speed >= 0;
+      const rate = (speedingUp ? CAT_TARGET_ACCEL : CAT_TARGET_BRAKE_LIMIT) * dt;
+      journey.speed += THREE.MathUtils.clamp(desired - journey.speed, -rate, rate);
+      let next = prevDist + journey.speed * dt;
+      const reachesTarget = (goal - next) * remaining <= 0 && journey.speed * remaining > 0;
+      if (reachesTarget || (Math.abs(goal - next) <= CAT_TARGET_ARRIVE_DISTANCE && Math.abs(journey.speed) < 0.08)) {
+        next = goal;
+        journey.speed = 0;
+        if (journey.via !== null) journey.via = null; // at the turn-around spot: now head for the target
+        else arrived = true;
+      }
+      journey.dist = THREE.MathUtils.clamp(next, 0, journeyPath.length);
+      if (journey.dist !== next) journey.speed = 0;
+    }
+    const routeSpeed = dt > 0 ? (journey.dist - prevDist) / dt : 0;
+    if (Math.abs(routeSpeed) > 0.02) journey.facing = routeSpeed < 0 ? -1 : 1;
+    const moveDir = journey.facing;
+    catSpeedRef.current = Math.abs(routeSpeed);
+    const targetPos = samplePolyline(journeyPath, journey.dist);
+    const aheadPos = samplePolyline(
+      journeyPath,
+      THREE.MathUtils.clamp(journey.dist + moveDir * CAT_LOOKAHEAD, 0, journeyPath.length)
+    );
+    const progress = targetJourneyProgress * (journeyPath.length > 0 ? journey.dist / journeyPath.length : 1);
     const pos = targetPos;
     const tangent = aheadPos.clone().sub(targetPos);
     if (tangent.lengthSq() > 1e-8) tangent.normalize();
     else tangent.copy(tangentAt(pathPoints, progress));
-    const body = catBodyRef.current;
-    if (body) {
-      // Cat movement follows doc path and snaps to doc surface.
+    if (body && journey.placed) {
+      // The route is precomputed on the path (kept clear of rocks / cliffs): follow it exactly and snap to the
+      // path surface. No per-frame collision clamp here: it stalled the cat against slopes / corners while the
+      // route kept advancing, and the later catch-up looked like a teleport.
       const safePos = targetPos;
       const desiredPos = new THREE.Vector3(safePos.x, safePos.y, safePos.z);
       if (docMeshes.length > 0) {
@@ -1640,72 +2170,40 @@ export function ExperienceMilestoneTrail() {
               .normalize();
             // The path mesh is double-sided: a flipped face reports a downward normal (would tip the cat over).
             if (faceNormal.y < 0) faceNormal.negate();
-            const normalSmooth = 1 - Math.exp(-8 * delta);
+            const normalSmooth = 1 - Math.exp(-8 * dt);
             surfaceNormalRef.current.lerp(faceNormal, normalSmooth).normalize();
           }
         }
       }
       const currentPos = catPosRef.current.clone();
-      const moveDir = desiredPos.clone().sub(currentPos);
-      if (moveDir.lengthSq() > 0.000001) {
-        let collisionResolved = false;
-        if (world && rapier) {
-          const dir = moveDir.clone().normalize();
-          const rayOrigin = currentPos.clone().add(new THREE.Vector3(0, 0.08, 0));
-          const ray = new rapier.Ray(
-            { x: rayOrigin.x, y: rayOrigin.y, z: rayOrigin.z },
-            { x: dir.x, y: dir.y, z: dir.z }
-          );
-          const maxToi = moveDir.length() + CAT_COLLISION_RADIUS;
-          const hit = world.castRayAndGetNormal(ray, maxToi, false);
-          if (hit) {
-            const toi = (hit as { toi?: number; timeOfImpact?: number }).toi
-              ?? (hit as { timeOfImpact?: number }).timeOfImpact
-              ?? 0;
-            const n = (hit as { normal?: { x: number; y: number; z: number } }).normal;
-            const normal = n
-              ? new THREE.Vector3(n.x, n.y, n.z).normalize()
-              : new THREE.Vector3(-dir.x, 0, -dir.z).normalize();
-            const hitPoint = rayOrigin.clone().addScaledVector(dir, Math.max(0, toi));
-            const remaining = desiredPos.clone().sub(hitPoint);
-            const slide = remaining.addScaledVector(normal, -remaining.dot(normal));
-            desiredPos.copy(hitPoint).addScaledVector(normal, CAT_COLLISION_RADIUS + 0.01).add(slide);
-            collisionResolved = true;
-          }
-        }
-        if (!collisionResolved && wallMeshes.length > 0) {
-          const ray = raycasterRef.current;
-          ray.set(currentPos, moveDir.clone().normalize());
-          ray.far = moveDir.length() + CAT_COLLISION_RADIUS;
-          const hits = ray.intersectObjects(wallMeshes, true);
-          if (hits.length > 0) {
-            const hit = hits[0];
-            if (hit.face) {
-              const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize();
-              const remaining = desiredPos.clone().sub(hit.point);
-              const slide = remaining.addScaledVector(normal, -remaining.dot(normal));
-              desiredPos.copy(hit.point).addScaledVector(normal, CAT_COLLISION_RADIUS).add(slide);
-            } else {
-              desiredPos.copy(currentPos);
-            }
-          }
-        }
-      }
-      const moveSmooth = 1 - Math.exp(-CAT_MOVE_SMOOTHNESS * delta);
-      const smoothedPos = currentPos.clone().lerp(desiredPos, moveSmooth);
+      // Horizontal position is exactly on the route; height eases onto the surface (no steps on mesh seams).
+      const smoothedPos = desiredPos.clone();
+      smoothedPos.y = currentPos.y + (desiredPos.y - currentPos.y) * (1 - Math.exp(-CAT_MOVE_SMOOTHNESS * dt));
       // Turn smoothly toward a look-ahead point on the route (shortest angle), and lean into turns.
       const lookDir = aheadPos.clone().sub(smoothedPos);
       const targetHeading =
-        Math.hypot(lookDir.x, lookDir.z) > 0.01 && profile.speed > 0.02
-          ? Math.atan2(lookDir.x, lookDir.z)
-          : headingRef.current;
-      const rotSmooth = 1 - Math.exp(-CAT_ROTATE_SMOOTHNESS * delta);
+        turnHeading !== null
+          ? turnHeading
+          : Math.hypot(lookDir.x, lookDir.z) > 0.01 && Math.abs(routeSpeed) > 0.02
+            ? Math.atan2(lookDir.x, lookDir.z)
+            : headingRef.current;
+      const rotSmooth = 1 - Math.exp(-CAT_ROTATE_SMOOTHNESS * dt);
       const prevHeading = headingRef.current;
-      headingRef.current = prevHeading + wrapAngle(targetHeading - prevHeading) * rotSmooth;
-      const yawRate = delta > 0 ? wrapAngle(headingRef.current - prevHeading) / delta : 0;
+      let headingDelta = wrapAngle(targetHeading - prevHeading);
+      // A turn-around keeps to the side with room (may be the long way round).
+      const turnSide = journeyRef.current.turnSide;
+      if (turnSide !== 0 && Math.sign(headingDelta) === -turnSide && Math.abs(headingDelta) > Math.PI / 2) {
+        headingDelta += turnSide * 2 * Math.PI;
+      }
+      headingRef.current = prevHeading + headingDelta * rotSmooth;
+      const yawRate = dt > 0 ? wrapAngle(headingRef.current - prevHeading) / dt : 0;
       // With doc snapping the surface normal already follows the slope; only add slope pitch as a fallback.
       const pitch = docMeshes.length > 0 ? 0 : THREE.MathUtils.clamp(0.015 + tangent.y * 0.25, -0.08, 0.1);
-      const leanAmount = THREE.MathUtils.clamp(yawRate * profile.speed * CAT_TURN_LEAN, -CAT_MAX_LEAN, CAT_MAX_LEAN);
+      const leanAmount = THREE.MathUtils.clamp(
+        yawRate * Math.abs(routeSpeed) * CAT_TURN_LEAN,
+        -CAT_MAX_LEAN,
+        CAT_MAX_LEAN
+      );
       // Turn centre lies on (cos h, 0, -sin h) for a positive yaw rate; tilt the body's up vector toward it.
       const leanVec = new THREE.Vector3(Math.cos(headingRef.current), 0, -Math.sin(headingRef.current));
 
@@ -1741,16 +2239,35 @@ export function ExperienceMilestoneTrail() {
     }
 
     let unlocked = 0;
-    for (let i = 0; i < milestoneStops.length; i += 1) {
-      const threshold = milestoneStops[i].progress ?? 1;
-      if (progress >= threshold) unlocked = i + 1;
+    if (journey.target === null) {
+      for (let i = 0; i < milestoneStops.length; i += 1) {
+        const threshold = milestoneStops[i].progress ?? 1;
+        // Count by milestone index (same index / id as the Experience panel entries).
+        if (progress >= threshold) unlocked = milestoneStops[i].idx + 1;
+      }
+    } else {
+      // Running to a picked milestone unlocks every milestone it passes (never re-locks when running back).
+      unlocked = unlockedRef.current;
+      for (const stopItem of milestoneStops) {
+        const at = milestoneDists.get(stopItem.idx);
+        if (at !== undefined && journey.dist >= at - 0.05) unlocked = Math.max(unlocked, stopItem.idx + 1);
+      }
+      if (arrived) unlocked = Math.max(unlocked, journey.targetIndex + 1);
     }
     if (unlocked !== unlockedRef.current) {
       unlockedRef.current = unlocked;
       setExperienceUnlockedCount(unlocked);
+      if (journey.target === null) setExperienceCatMilestone({ at: unlocked - 1, heading: null });
+    }
+    if (arrived) {
+      // Stand at the picked milestone (idle blend follows the zero speed); the dialog marks it as "the cat is here".
+      runningRef.current = false;
+      catSpeedRef.current = 0;
+      setExperienceCatMilestone({ at: journey.targetIndex, heading: null });
+      return;
     }
 
-    const hasReachedFinalStop = profile.done;
+    const hasReachedFinalStop = journey.target === null && profile.done && journey.dist >= journeyPath.length - 1e-4;
     const lastFlagCatStop = journeyPath.stop;
 
     if (hasReachedFinalStop) {
@@ -1793,6 +2310,7 @@ export function ExperienceMilestoneTrail() {
         unlockedRef.current = finalUnlocked;
         setExperienceUnlockedCount(finalUnlocked);
       }
+      setExperienceCatMilestone({ at: finalUnlocked - 1, heading: null });
       catSpeedRef.current = 0;
       // Cat has stopped: the speed-driven blend in the mixer block has already eased walk -> Idle_Stand.
       if (!idleActionRef.current && walkActionRef.current) {

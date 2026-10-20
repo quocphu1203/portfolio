@@ -43,6 +43,8 @@
     "projectsFallbackTitle": "プロジェクト",
     "projectFallbackDescription": "鳥を選択するとプロジェクト詳細を表示します。",
     "lockedMilestone": "まだロック中です。猫がこの地点に到達するまで待ってください。",
+    "currentMilestone": "猫はここ",
+    "headingMilestone": "向かっています",
     "github": "GitHub",
     "noGithub": "GitHubはまだありません",
     "projectRole": "役割",

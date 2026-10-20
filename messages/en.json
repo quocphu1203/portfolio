@@ -43,6 +43,8 @@
     "projectsFallbackTitle": "Projects",
     "projectFallbackDescription": "Pick a bird to see project details.",
     "lockedMilestone": "Locked for now, wait until the cat reaches this milestone.",
+    "currentMilestone": "The cat is here",
+    "headingMilestone": "Heading here",
     "github": "GitHub",
     "noGithub": "GitHub not available yet",
     "projectRole": "Role",

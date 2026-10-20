@@ -6,6 +6,8 @@ import { computeSkillsFraming } from "./skillsFraming";
 
 import { getCameraPresets, type NavId } from "./portfolioNavData";
 
+const NO_CAT_MILESTONE = { at: -1, heading: null };
+
 export type NavTransition = {
   mode: "section" | "menu";
   sectionId?: NavId;
@@ -40,6 +42,12 @@ type PortfolioNavContextValue = {
   setExperienceUnlockedCount: (count: number) => void;
   experienceCatPose: { position: [number, number, number]; heading: number } | null;
   setExperienceCatPose: (pose: { position: [number, number, number]; heading: number } | null) => void;
+  /** Experience dialog asks the cat to run to a milestone (seq makes repeated clicks distinct). */
+  experienceMilestoneRequest: { index: number; seq: number } | null;
+  requestExperienceMilestone: (index: number) => void;
+  /** Where the Experience cat is: milestone index it stands at (-1 none) and the one it runs to (null idle). */
+  experienceCatMilestone: { at: number; heading: number | null };
+  setExperienceCatMilestone: (state: { at: number; heading: number | null }) => void;
   /**
    * Closing a project: "takingOff" (bird takes off, camera follows it) -> "returning" (camera flies back to the
    * island overview) -> "idle". Re-selecting a bird at any point cancels it.
@@ -93,6 +101,15 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
     position: [number, number, number];
     heading: number;
   } | null>(null);
+  const [experienceMilestoneRequest, setExperienceMilestoneRequest] = useState<{ index: number; seq: number } | null>(
+    null
+  );
+  const [experienceCatMilestone, setExperienceCatMilestone] = useState<{ at: number; heading: number | null }>(
+    NO_CAT_MILESTONE
+  );
+  const requestExperienceMilestone = useCallback((index: number) => {
+    setExperienceMilestoneRequest((prev) => ({ index, seq: (prev?.seq ?? 0) + 1 }));
+  }, []);
   const [exploreMode, setExploreMode] = useState(false);
   const [projectExit, setProjectExit] = useState<"idle" | "takingOff" | "returning">("idle");
   const [introPhase, setIntroPhase] = useState<"idle" | "approach" | "open">("idle");
@@ -173,6 +190,8 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
         setExperienceJourneyKey((v) => v + 1);
         setExperienceUnlockedCount(0);
         setExperienceCatPose(null);
+        setExperienceMilestoneRequest(null);
+        setExperienceCatMilestone(NO_CAT_MILESTONE);
         setPendingNav(null);
         setActiveSection(id);
         setBoatPaused(false);
@@ -216,6 +235,8 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
     setSelectedProjectId(null);
     setExperienceUnlockedCount(0);
     setExperienceCatPose(null);
+    setExperienceMilestoneRequest(null);
+    setExperienceCatMilestone(NO_CAT_MILESTONE);
   }, [orbitTargetY]);
 
   const flyToDefault = useCallback(() => {
@@ -236,6 +257,8 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
     setSelectedProjectId(null);
     setExperienceUnlockedCount(0);
     setExperienceCatPose(null);
+    setExperienceMilestoneRequest(null);
+    setExperienceCatMilestone(NO_CAT_MILESTONE);
   }, [orbitTargetY]);
 
   const clearPendingNav = useCallback(() => {
@@ -390,6 +413,10 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
       setExperienceUnlockedCount,
       experienceCatPose,
       setExperienceCatPose,
+      experienceMilestoneRequest,
+      requestExperienceMilestone,
+      experienceCatMilestone,
+      setExperienceCatMilestone,
       exploreMode,
       enterExplore,
       exitExplore,
@@ -424,6 +451,9 @@ export function PortfolioNavProvider({ children }: { children: React.ReactNode }
       experienceJourneyKey,
       experienceUnlockedCount,
       experienceCatPose,
+      experienceMilestoneRequest,
+      requestExperienceMilestone,
+      experienceCatMilestone,
       exploreMode,
       enterExplore,
       exitExplore,
